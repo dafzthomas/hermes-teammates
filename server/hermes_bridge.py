@@ -41,6 +41,16 @@ if __name__ == "__main__":
     if "--gateway" in sys.argv:
         # Hermes owns session state, tool execution, requests and turn lifecycle.
         from tui_gateway.entry import main as gateway_main
+        # The native TUI entrypoint does not register config-owned shell hooks.
+        # Use the same public registration path as the Hermes CLI and channel gateway.
+        from hermes_cli.config import load_config
+        from agent.shell_hooks import register_from_config
+        config = load_config()
+        registered = register_from_config(config, accept_hooks=False)
+        expected = {hook["command"] for hook in config.get("hooks", {}).get("pre_tool_call", [])
+                    if hook.get("teammates_review") is True}
+        if not expected.issubset({spec.command for spec in registered}):
+            raise RuntimeError("Teammates action-review hook could not be activated")
         gateway_main()
         sys.exit(0)
     try:

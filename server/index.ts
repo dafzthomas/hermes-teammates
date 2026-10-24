@@ -5,10 +5,16 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { botInputSchema, routineSchema, requestResponseSchema } from '../src/domain';
+import {
+  botInputSchema,
+  routineSchema,
+  requestResponseSchema,
+  connectionInputSchema,
+} from '../src/domain';
 import { Store } from './store';
 import { Hermes } from './hermes';
 import { Computers } from './computers';
+import { Connections } from './connections';
 import type { Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 
@@ -22,13 +28,19 @@ export function createApp(dataRoot: string) {
   };
   const hermes = new Hermes(store, changed);
   const computers = new Computers(store, changed);
-  hermes.beforeRun = (bot) => computers.configure(bot, hermes.python || '');
+  const connections = new Connections(store, hermes, changed);
+  hermes.beforeRun = (bot) => {
+    computers.configure(bot, hermes.python || '');
+    connections.configure(bot);
+  };
+  hermes.onClearRequests = (id, sessionId) => connections.cancelBot(id, sessionId);
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 8_000_000 });
   function attach(server: Server) {
     const address = server.address();
     if (!address || typeof address === 'string')
       throw new Error('Backend must listen before attaching computers.');
     computers.bindOrigin(`http://127.0.0.1:${address.port}`);
+    connections.bindOrigin(`http://127.0.0.1:${address.port}`);
     server.on('upgrade', (req, socket, head) => {
       const match = /^\/api\/bots\/([a-zA-Z0-9-]+)\/computer\/ws$/.exec(req.url || '');
       const host = req.headers.host || '';
@@ -126,7 +138,10 @@ export function createApp(dataRoot: string) {
       bots: store.state.bots,
       groups: store.state.groups,
       inbox: store.inbox(),
-      requests: [...hermes.requests.values()].map((request) => request.view),
+      requests: [
+        ...[...hermes.requests.values()].map((request) => request.view),
+        ...connections.views(),
+      ],
       running: hermes.activeTurns().map(([botId, turn]) => ({
         botId,
         text: store.redact(botId, turn.text),
@@ -185,11 +200,48 @@ export function createApp(dataRoot: string) {
       skills: store.skills(id),
       files: store.files(id),
       secrets: Object.keys(store.secretEntries(id)),
+      connections: connections.list(id),
       routines,
       routineError,
       routineOutputs: store.outputs(id),
       activity: store.state.activity.filter((a) => a.botId === id).slice(-100),
     });
+  });
+  app.post('/api/bots/:id/connections', (req, res) => {
+    if (hermes.busy(req.params.id))
+      return res.status(409).json({ error: 'Wait for this Bot to finish before changing apps.' });
+    res.status(201).json(connections.save(req.params.id, connectionInputSchema.parse(req.body)));
+  });
+  app.put('/api/bots/:id/connections/:connectionId', (req, res) => {
+    if (hermes.busy(req.params.id))
+      return res.status(409).json({ error: 'Wait for this Bot to finish before changing apps.' });
+    res.json(
+      connections.save(
+        req.params.id,
+        connectionInputSchema.parse(req.body),
+        req.params.connectionId,
+      ),
+    );
+  });
+  app.delete('/api/bots/:id/connections/:connectionId', (req, res) => {
+    if (hermes.busy(req.params.id))
+      return res.status(409).json({ error: 'Wait for this Bot to finish before changing apps.' });
+    connections.remove(req.params.id, req.params.connectionId);
+    res.json({ ok: true });
+  });
+  app.post('/api/bots/:id/action-review', async (req, res) => {
+    if (!connections.authorized(req.params.id, req.headers.authorization))
+      return res.status(403).json({ error: 'Invalid action-review capability.' });
+    const review = await connections.request(req.params.id, req.body);
+    if (res.destroyed) {
+      connections.cancel(review.id, 'The review channel disconnected.');
+      return;
+    }
+    res.on('close', () => {
+      if (!res.writableEnded) connections.cancel(review.id, 'The review channel disconnected.');
+    });
+    const result = await review.result;
+    if (!res.destroyed) res.json(result);
   });
   app.get('/api/bots/:id/computer', async (req, res) =>
     res.json(await computers.status(req.params.id)),
@@ -257,12 +309,16 @@ export function createApp(dataRoot: string) {
   });
   app.post('/api/bots/:id/stop', (req, res) => {
     store.bot(req.params.id);
+    connections.cancelBot(req.params.id);
     void hermes.stop(req.params.id);
     res.json({ ok: true });
   });
   app.post('/api/bots/:id/requests/:requestId', (req, res) => {
     store.bot(req.params.id);
-    hermes.respond(req.params.id, req.params.requestId, requestResponseSchema.parse(req.body));
+    const response = requestResponseSchema.parse(req.body);
+    if (req.params.requestId.startsWith('review-'))
+      connections.respond(req.params.id, req.params.requestId, response);
+    else hermes.respond(req.params.id, req.params.requestId, response);
     res.json({ ok: true });
   });
   app.post('/api/bots/:id/steer', async (req, res) => {
@@ -428,8 +484,10 @@ export function createApp(dataRoot: string) {
     store,
     hermes,
     computers,
+    connections,
     attach,
     close: async () => {
+      connections.close();
       for (const res of clients) res.end();
       for (const socket of sockets.clients) socket.terminate();
       sockets.close();
@@ -471,6 +529,7 @@ async function main() {
   await context.hermes.probe();
   for (const bot of context.store.state.bots)
     if (bot.computerEnabled) context.computers.configure(bot, context.hermes.python || '');
+  for (const bot of context.store.state.bots) context.connections.configure(bot);
   context.hermes.startScheduler();
   for (const signal of ['SIGINT', 'SIGTERM'])
     process.once(signal, () => {

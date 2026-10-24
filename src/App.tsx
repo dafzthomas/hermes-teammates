@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Activity,
+  Plug,
   ArrowDownToLine,
   ArrowUp,
   BookOpen,
@@ -33,8 +34,11 @@ import Markdown from 'react-markdown';
 import { z } from 'zod';
 import { ComputerPanel } from './ComputerPanel';
 import { RequestCard } from './RequestCard';
+import { ConnectionFields } from './ConnectionFields';
 import {
   snapshotSchema,
+  connectionInputSchema,
+  type Connection,
   botDetailSchema,
   type Bot,
   type BotDetail,
@@ -100,7 +104,8 @@ function IconButton({
     </button>
   );
 }
-type Panel = 'overview' | 'memory' | 'skills' | 'files' | 'secrets' | 'routines' | 'activity';
+type Panel =
+  'overview' | 'memory' | 'skills' | 'files' | 'secrets' | 'connections' | 'routines' | 'activity';
 type Editor = {
   title: string;
   body: ReactNode;
@@ -117,6 +122,7 @@ const emptyDetail: BotDetail = {
   skills: [],
   files: [],
   secrets: [],
+  connections: [],
   messages: [],
   sessions: [],
   routines: [],
@@ -577,6 +583,48 @@ export function App() {
           ),
           'Credential saved',
         ),
+    });
+  const connectionEditor = (connection?: Connection) =>
+    setEditor({
+      title: connection ? 'Edit app connection' : 'Connect an app',
+      body: <ConnectionFields connection={connection} credentials={detail.secrets} />,
+      button: connection ? 'Save connection' : 'Connect app',
+      submit: async (data) => {
+        let server;
+        try {
+          server =
+            data.get('transport') === 'http'
+              ? {
+                  transport: 'http',
+                  url: data.get('url'),
+                  ...(data.get('bearerCredential')
+                    ? { bearerCredential: data.get('bearerCredential') }
+                    : {}),
+                }
+              : {
+                  transport: 'stdio',
+                  command: data.get('command'),
+                  args: JSON.parse(String(data.get('args') || '[]')),
+                  env: JSON.parse(String(data.get('env') || '{}')),
+                };
+        } catch {
+          throw new Error('Use a JSON array for arguments and an object for credential bindings.');
+        }
+        const input = connectionInputSchema.parse({
+          name: data.get('name'),
+          enabled: data.has('enabled'),
+          review: data.has('review'),
+          server,
+        });
+        await saveThenRefresh(
+          api(
+            `/bots/${selected}/connections${connection ? `/${connection.id}` : ''}`,
+            input,
+            connection ? 'PUT' : 'POST',
+          ),
+          'App connection saved',
+        );
+      },
     });
   const routineEditor = () =>
     setEditor({
@@ -1260,6 +1308,21 @@ export function App() {
                           </span>
                         </button>
                       </div>
+                      <button
+                        className="connection-shortcut"
+                        onClick={() => showPanel('connections')}
+                      >
+                        <Plug size={18} />
+                        <span>
+                          <strong>Apps</strong>
+                          <small>
+                            {detail.connections.length
+                              ? `${detail.connections.length} connected`
+                              : 'Connect tools to this Bot'}
+                          </small>
+                        </span>
+                        <Plus size={14} />
+                      </button>
                       <div className="section-heading">
                         <h3>Memories</h3>
                         <IconButton label="Edit memory" onClick={() => memoryEditor('MEMORY')}>
@@ -1497,6 +1560,73 @@ export function App() {
                           external secret stores for a vault-backed setup.
                         </p>
                       </div>
+                    </>
+                  )}
+                  {panel === 'connections' && (
+                    <>
+                      <div className="section-heading">
+                        <h3>Apps</h3>
+                        <button onClick={() => connectionEditor()}>
+                          <Plus size={14} />
+                          Connect app
+                        </button>
+                      </div>
+                      <p className="panel-description">
+                        Connect an MCP app to this Bot. Each connection has its own credential
+                        bindings. Reviewed tool calls pause in Chat so you can edit or deny them.
+                      </p>
+                      {detail.connections.map((connection) => (
+                        <div className="resource-card connection-card" key={connection.id}>
+                          <div className="section-heading">
+                            <strong>{connection.name}</strong>
+                            <button onClick={() => connectionEditor(connection)}>Edit</button>
+                          </div>
+                          <small>
+                            {connection.enabled ? 'Enabled' : 'Disabled'} ·{' '}
+                            {connection.review ? 'Review every action' : 'Runs without review'}
+                          </small>
+                          <p>
+                            {connection.server.transport === 'http'
+                              ? new URL(connection.server.url).host
+                              : connection.server.command}
+                          </p>
+                          <button
+                            className="remove-connection"
+                            onClick={() =>
+                              setEditor({
+                                title: 'Disconnect app',
+                                body: (
+                                  <p>
+                                    Disconnect {connection.name} from {bot.name}? Its saved
+                                    credentials stay with this Bot.
+                                  </p>
+                                ),
+                                button: 'Disconnect',
+                                submit: () =>
+                                  saveThenRefresh(
+                                    api(
+                                      `/bots/${selected}/connections/${connection.id}`,
+                                      undefined,
+                                      'DELETE',
+                                    ),
+                                    'App disconnected',
+                                  ),
+                              })
+                            }
+                          >
+                            <Trash2 size={13} />
+                            Disconnect
+                          </button>
+                        </div>
+                      ))}
+                      {!detail.connections.length && (
+                        <div className="empty-resource">
+                          <Plug size={28} />
+                          <p>
+                            No apps connected. Add an HTTP MCP endpoint or an installed MCP command.
+                          </p>
+                        </div>
+                      )}
                     </>
                   )}
                   {panel === 'routines' && (

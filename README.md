@@ -6,7 +6,7 @@ An original, MIT-licensed desktop workspace for persistent Hermes agents, inspir
 
 _Actual compiled interface with controlled integration-test content._
 
-Each Bot has a role, model configuration, conversation history, memory, skills, workspace files and credential file. Bots can hand work to one another through Hermes' native `message_agent` tool. Groups bring multiple Bots into one visible conversation. Routines use Hermes' own cron store and scheduler. Each Bot can also have its own Linux computer with a live screen and manual takeover.
+Each Bot has a role, model configuration, conversation history, memory, skills, workspace files and credential file. Bots can hand work to one another through Hermes' native `message_agent` tool. Groups bring multiple Bots into one visible conversation. Routines use Hermes' own cron store and scheduler. Each Bot can also have its own Linux computer with a live screen and manual takeover, plus MCP app connections with editable action reviews.
 
 **First local release:** this is a working foundation, not full Grok Bot feature parity. See [the feature audit and alternatives](docs/research.md), [architecture and security boundaries](docs/architecture.md), and [verification](docs/verification.md).
 
@@ -50,6 +50,38 @@ No real model credentials are included. The integration test uses a controlled l
 Unread badges on Bots, conversations and groups survive reloads and backend restarts. Opening a focused Chat view marks only the messages it has loaded as read. Viewing the Computer tab does not clear conversation unread state. Existing native routines retain their configured delivery destination; recreate an older local-only routine to opt into Bot Chat delivery.
 
 Routines run while the backend is running. Closing the desktop app quits its backend. Sleeping the computer pauses local work. For an always-on service, run the backend on an awake machine; authenticated remote access and service installation are not included here.
+
+## Connected apps and action review
+
+Open **Overview → Apps → Connect app** on a Bot. Add an HTTP MCP endpoint or an
+installed MCP command. For authentication, save the service key in that Bot's
+Credentials, then select its name as the HTTP bearer credential or bind it to a
+command environment variable. Arguments and bindings use JSON; for example,
+`["/path/to/server.mjs"]` and `{"APP_TOKEN":"SERVICE_KEY"}`. Hermes owns MCP
+transport, discovery and tool execution. Existing profile MCP entries are preserved.
+
+**Review every tool call** is enabled by default. When the Bot calls a connected
+app, Chat shows its parameters as editable JSON. Change values and choose **Run
+reviewed action**, or **Deny**. Keep the original field names: Hermes merges the
+reviewed parameters into the call. Reviews survive window reload, expire after
+four minutes by default, and are withdrawn by Stop or a terminated turn. A lower
+native hook timeout shortens the review window. A backend restart cancels pending
+work rather than replaying an approval.
+
+Reviews require an active Teammates conversation. A separate cron worker or
+background teammate worker cannot request an editable review through this UI;
+its reviewed app call is blocked. It can deliver a draft to Bot Chat for a new
+interactive action. Turning review off explicitly permits unattended calls on
+that connection. This gate covers app connections managed here; other native
+Hermes tools retain their own policy.
+
+Installed commands run as your OS user. Connect trusted servers and grant only
+the credentials they need. HTTP servers receive the selected bearer token.
+There is no app marketplace, OAuth setup wizard or built-in third-party account
+login. See [Hermes MCP documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp)
+for compatible servers.
+
+![Editable native app action review](docs/action-review.png)
 
 ## Bot computers
 

@@ -8,7 +8,7 @@ Verified locally on 24 October 2026, on macOS Apple silicon. These checks establ
 | ---------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | TypeScript strict checking         | Passed                                  | Application, server, tests and acceptance script typecheck                                                   |
 | Production build                   | Passed                                  | Vite client and bundled Node backend compile                                                                 |
-| Store/API/native integration tests | 8 passed; VM test opts in separately    | Persistence, input boundaries, native agent execution and both inference protocols                           |
+| Store/API/native integration tests | 9 passed; VM test opts in separately    | Persistence, input boundaries, native agent execution and both inference protocols                           |
 | Compiled browser acceptance        | Passed at 1440×1050 and 390×844         | Actual UI interactions and responsive rendering                                                              |
 | Electron development shell         | Passed                                  | Native window loads the compiled backend and connects to Hermes                                              |
 | Unpacked macOS application         | Passed                                  | Packaged asar backend/static assets, native Hermes detection and routine bridge work                         |
@@ -115,4 +115,35 @@ The first desktop launch inherited `ELECTRON_RUN_AS_NODE=1` from this agent envi
 
 ## Unverified or absent
 
-Live paid providers and OAuth reuse; rich/binary attachments; editable send-draft controls, native credential/sudo prompt execution with a real external service, vault login prompts; webhook triggers; voice; remote authentication and always-on service operation; crash recovery of active runs; multi-user/team access; whole-agent OS isolation; signed distribution and automatic updates. See [the feature audit](research.md) for the planned sequence.
+Live paid providers and OAuth reuse; rich/binary attachments; service-specific send-draft composers, native credential/sudo prompt execution with a real external service, vault login prompts; webhook triggers; voice; remote authentication and always-on service operation; crash recovery of active runs; multi-user/team access; whole-agent OS isolation; signed distribution and automatic updates. See [the feature audit](research.md) for the planned sequence.
+
+## App connection acceptance
+
+Run `npx tsx --test test/connections.integration.test.ts` for actual installed
+Hermes MCP and policy-hook execution with local model and app fixtures. It proves
+that the app receives edited recipient/text values only after approval, Deny and
+Stop cause no further execution, expired reviews cannot later approve, and the
+HTTP transport receives its owning Bot's selected bearer credential. The stdio
+fixture checks a hash of its bound key and absence of the model-provider variable;
+no real credentials or third-party delivery are used. It also checks wrong-Bot
+response rejection, invalid capability rejection, explicit native timeout retention,
+and preservation of unrelated MCP, hook and consent entries after disconnect. A malformed native consent file causes the connection change to fail and restores the previous metadata, config and descriptor state.
+
+Run `npm run verify:connections` for the compiled connection form and editable
+review card. The Playwright workflow adds a command connection, waits for a real
+Hermes MCP action, reloads while waiting, exercises malformed JSON feedback, edits
+the actual action, and checks the app fixture received the reviewed parameters.
+It checks 390px overflow and page errors. With `TEAMMATES_PACKAGED_EXECUTABLE`
+pointing to the unpacked macOS executable, it also stops the browser backend,
+launches the package with the same disposable data, and executes another reviewed
+MCP action through the packaged Python hook. Screenshots are retained in ignored
+`test-artifacts/app-connections.png` and `app-action-review.png`.
+
+Early tests found an unregistered TUI hook and a prefix matcher where Hermes
+requires full matching; those first calls bypassed review. After registration was
+fixed, the test found different durable and live conversation IDs, then a mistaken
+resume RPC for a live ID. The final adapter uses Hermes' native active-session list.
+Those failed executions were confined to disposable local fixtures. The compiled
+UI script initially expected an empty composer Send button to be enabled; the
+acceptance now waits for the completed reply, consistent with the existing UI.
+The first packaged acceptance reused a conversation containing the earlier fixture marker, so its deterministic model did not request another tool. The fixture now selects the latest marker, and the packaged flow passed. Live third-party services, OAuth flows and a real external message remain unverified.

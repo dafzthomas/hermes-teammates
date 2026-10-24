@@ -1960,3 +1960,49 @@ legend {
 .routine-output > :last-child {
   margin-bottom: 0;
 }
+
+.connection-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  text-align: left;
+  margin: 14px 0 24px;
+  color: #bbb;
+}
+.connection-shortcut span {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+}
+.connection-shortcut strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.connection-shortcut small {
+  font-size: 10px;
+}
+.connection-card p {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  color: var(--muted);
+}
+.remove-connection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #aaa;
+  padding: 10px 0 0;
+}
+.action-parameters {
+  width: 100%;
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}

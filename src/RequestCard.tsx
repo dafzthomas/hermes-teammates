@@ -1,13 +1,26 @@
 import { useState, type FormEvent } from 'react';
 import { CircleHelp, KeyRound, ShieldCheck } from 'lucide-react';
 import type { InteractiveRequest, RequestResponse } from './domain';
+import { ActionReviewCard } from './ActionReviewCard';
+type Props = {
+  request: InteractiveRequest;
+  botName: string;
+  respond: (response: RequestResponse) => Promise<void>;
+};
+export function RequestCard(props: Props) {
+  return props.request.kind === 'action' ? (
+    <ActionReviewCard {...props} request={props.request} />
+  ) : (
+    <NativeRequestCard {...props} request={props.request} />
+  );
+}
 
-export function RequestCard({
+function NativeRequestCard({
   request,
   botName,
   respond,
 }: {
-  request: InteractiveRequest;
+  request: Exclude<InteractiveRequest, { kind: 'action' }>;
   botName: string;
   respond: (response: RequestResponse) => Promise<void>;
 }) {

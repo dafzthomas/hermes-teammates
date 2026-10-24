@@ -122,6 +122,18 @@ export class Hermes {
       ([botId, turn]) => botId === id && turn.sessionId === sessionId,
     )?.[1];
   }
+  async turnForStoredSession(id: string, storedSessionId: string) {
+    const gateway = this.gateways.get(id);
+    if (!gateway) return;
+    // Native policy hooks use the durable agent ID. TUI events use a separate live ID.
+    // Read Hermes' live mapping on every review, including context-compression changes.
+    const result = z
+      .object({ sessions: z.array(z.object({ id: z.string(), session_key: z.string() })) })
+      .parse(await gateway.call('session.active_list', {}));
+    const live = result.sessions.find((session) => session.session_key === storedSessionId);
+    return live ? this.turnFor(id, live.id) : undefined;
+  }
+
   adoptBackground(id: string, gateway: Gateway, sessionId: string) {
     let title = [...gateway.sessions].find(([, sid]) => sid === sessionId)?.[0];
     if (!title) {
@@ -177,6 +189,7 @@ export class Hermes {
   ticking = new Map<string, ChildProcess>();
   timer?: ReturnType<typeof setInterval>;
   beforeRun?: (bot: Bot) => void;
+  onClearRequests?: (id: string, sessionId?: string) => void;
   constructor(
     readonly store: Store,
     readonly changed: () => void,
@@ -349,6 +362,7 @@ export class Hermes {
     return gateway;
   }
   clearRequests(id: string, sessionId?: string) {
+    this.onClearRequests?.(id, sessionId);
     for (const [key, request] of this.requests)
       if (request.view.botId === id && (!sessionId || request.sessionId === sessionId))
         this.requests.delete(key);

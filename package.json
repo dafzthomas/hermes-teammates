@@ -18,7 +18,8 @@
     "verify:ui": "npm run build && tsx scripts/verify-ui.ts",
     "format": "prettier --write src server scripts test electron *.json *.ts *.html README.md docs/*.md .github/workflows/*.yml",
     "format:check": "prettier --check src server scripts test electron *.json *.ts *.html README.md docs/*.md .github/workflows/*.yml",
-    "verify:computer": "npm run build && tsx scripts/verify-computer.ts"
+    "verify:computer": "npm run build && tsx scripts/verify-computer.ts",
+    "verify:connections": "npm run build && tsx scripts/verify-connections.ts"
   },
   "main": "electron/main.cjs",
   "dependencies": {
@@ -59,6 +60,7 @@
       "dist/**/*",
       "electron/**/*",
       "server/hermes_bridge.py",
+      "server/action_review.py",
       "package.json",
       "LICENSE",
       "server/computer/**/*",
@@ -68,6 +70,7 @@
     ],
     "asarUnpack": [
       "server/hermes_bridge.py",
+      "server/action_review.py",
       "server/computer/**/*",
       "server/computer_mcp.py"
     ],

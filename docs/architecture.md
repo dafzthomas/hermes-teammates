@@ -8,7 +8,7 @@ React renders the roster, transcript and details. The loopback Express server va
 React / Electron
         │ same-origin HTTP + server-sent change notifications
 Loopback server
-        ├── teammates.json: Bot roster, groups, activity, group display transcript, read cursors
+        ├── teammates.json: Bot roster, groups, activity, group display transcript, read cursors, app connections
         ├── Apple container manager: per-Bot VM, named home volume, private screen proxy
         └── Hermes gateway: one persistent stdio process per active Bot profile
                  ├── profile configuration and credential file
@@ -105,6 +105,35 @@ The VM home and host workspace are separate. No automatic file copy, credential
 injection, browser login management, whole-agent sandbox, or remote desktop
 service is implied by this surface. Native Hermes tools remain capable of acting
 on the host under the current OS account.
+
+## Connected apps and reviews
+
+The connection manager owns only `app_<id>` MCP entries in the Bot's native
+configuration. HTTP bearer and command environment bindings contain credential
+names, resolved by Hermes at connection time. Native MCP starts command servers
+with its filtered environment, not the model provider's ambient keys. The manager
+preserves unrelated MCP entries and native hooks. Failed connection changes restore
+the previous app metadata and owned configuration files when filesystem recovery
+is possible; this is not a multi-file crash transaction.
+
+An owner-only descriptor contains a random per-Bot, per-backend review capability.
+A native `pre_tool_call` shell hook posts the actual parameters and durable session
+ID to the loopback backend. The bootstrap activates declarative hooks using Hermes'
+registration API and verifies that its owned hook registered. The backend asks
+Hermes for the live-to-stored session mapping, then publishes a card only for that
+Bot's active turn. Responses validate Bot ownership, pending lifetime and original
+field preservation. Hermes shallow-merges the approved parameters before dispatch.
+Other trusted operator-installed hooks can still transform parameters or veto calls;
+this is not a replacement for their policies or OS isolation.
+
+Deny, expiry, a closed review channel, Stop, session completion and backend shutdown
+resolve pending calls as blocked. Reviews are memory-only and never auto-approved
+after backend restart. A browser reload reconnects to the existing card. The app
+defaults native callback timeout to 300 seconds if unset, with a 240-second review;
+explicit native limits are preserved. The shell subprocess and HTTP request also
+have bounded timeouts. A separate unattended worker with no live app turn receives
+a block when review is enabled. Disabling review is an explicit per-connection
+choice that permits unattended native execution.
 
 ## Security
 

@@ -101,12 +101,44 @@ export const activitySchema = z.object({
   at: z.number(),
 });
 export type Activity = z.infer<typeof activitySchema>;
+const credentialNameSchema = z
+  .string()
+  .regex(/^[A-Z_][A-Z0-9_]*$/, 'Use a credential name such as API_TOKEN');
+export const connectionInputSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  enabled: z.boolean().default(true),
+  review: z.boolean().default(true),
+  server: z.discriminatedUnion('transport', [
+    z.object({
+      transport: z.literal('stdio'),
+      command: z.string().trim().min(1).max(1000),
+      args: z.array(z.string().max(4000)).max(40),
+      env: z.record(credentialNameSchema, credentialNameSchema).default({}),
+    }),
+    z.object({
+      transport: z.literal('http'),
+      url: z
+        .url()
+        .refine(
+          (v) => ['http:', 'https:'].includes(new URL(v).protocol),
+          'Use an HTTP or HTTPS URL',
+        ),
+      bearerCredential: credentialNameSchema.optional(),
+    }),
+  ]),
+});
+export const connectionSchema = connectionInputSchema.extend({ id: z.uuid(), botId: z.string() });
+export type Connection = z.infer<typeof connectionSchema>;
+export const actionArgumentsSchema = z
+  .record(z.string(), z.json())
+  .refine((v) => JSON.stringify(v).length <= 64000, 'Keep action parameters under 64 KB');
 export const botDetailSchema = z.object({
   memory: z.string(),
   userMemory: z.string(),
   skills: z.array(z.object({ name: z.string(), content: z.string() })),
   files: z.array(z.object({ name: z.string(), size: z.number() })),
   secrets: z.array(z.string()),
+  connections: z.array(connectionSchema).default([]),
   messages: z.array(messageSchema),
   sessions: z.array(sessionSchema),
   routines: z.array(routineSchema),
@@ -123,6 +155,14 @@ export const questionSchema = z.object({
   multi_select: z.boolean().optional(),
 });
 export const interactiveRequestSchema = z.discriminatedUnion('kind', [
+  z.object({
+    ...requestIdentity,
+    kind: z.literal('action'),
+    connectionName: z.string(),
+    toolName: z.string(),
+    args: actionArgumentsSchema,
+    expiresAt: z.number(),
+  }),
   z.object({ ...requestIdentity, kind: z.literal('clarify'), questions: z.array(questionSchema) }),
   z.object({
     ...requestIdentity,
@@ -140,6 +180,13 @@ export const interactiveRequestSchema = z.discriminatedUnion('kind', [
 ]);
 export type InteractiveRequest = z.infer<typeof interactiveRequestSchema>;
 export const requestResponseSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('action'),
+    result: z.discriminatedUnion('decision', [
+      z.object({ decision: z.literal('deny') }),
+      z.object({ decision: z.literal('approve'), args: actionArgumentsSchema }),
+    ]),
+  }),
   z.object({ kind: z.literal('clarify'), answers: z.record(z.string(), z.string().max(16000)) }),
   z.object({ kind: z.literal('approval'), choice: z.enum(['once', 'session', 'always', 'deny']) }),
   z.object({ kind: z.literal('secret'), value: z.string().max(16000) }),

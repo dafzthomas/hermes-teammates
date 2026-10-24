@@ -8,6 +8,7 @@ import {
   botSchema,
   groupSchema,
   activitySchema,
+  connectionSchema,
   type Bot,
   type Activity,
   type Provider,
@@ -18,6 +19,7 @@ const stateSchema = z.object({
   bots: z.array(botSchema),
   groups: z.array(groupSchema),
   activity: z.array(activitySchema),
+  connections: z.array(connectionSchema).default([]),
   readCursors: z
     .array(
       z.object({ botId: z.string(), title: z.string(), sequence: z.number().int().nonnegative() }),
