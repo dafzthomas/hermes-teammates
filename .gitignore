@@ -3,7 +3,11 @@ dist/
 release/
 .local-data/
 .env
+.env.*
+!.env.example
 reference/
 test-artifacts/
 *.log
+__pycache__/
+*.py[cod]
 .DS_Store

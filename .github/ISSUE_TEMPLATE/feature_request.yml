@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose a change with a concrete use case.
+title: '[Feature]: '
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem do you want to solve?
+      description: Describe the task and where the current app stops helping.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Explain what the user and Bot would do. Include alternatives you considered.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Integrations and boundaries
+      description: Note relevant platforms, Hermes capabilities, credentials, approvals, or compatibility needs. Do not share secrets.

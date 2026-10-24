@@ -1,0 +1,33 @@
+name: Bug report
+description: Report reproducible behavior that does not match the documented behavior.
+title: '[Bug]: '
+body:
+  - type: markdown
+    attributes:
+      value: 'Do not include credentials, vault files, or private transcripts. Use SECURITY.md for vulnerabilities.'
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest task or command that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the app commit, OS and architecture, Node.js version, Hermes version, browser or Electron, and model provider when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted logs or screenshots
+      description: Remove tokens, account details, local private paths, and conversation content before uploading.

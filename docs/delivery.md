@@ -25,8 +25,7 @@ VM behavior was verified separately with actual VMs; that integration is an
 explicit opt-in test and is skipped by the default suite.
 
 The macOS ARM app is unsigned and not notarized. It needs the separately installed
-Hermes runtime and configured model access. Source and package exist locally;
-there is no published GitHub repository, release or remotely executed CI run.
+Hermes runtime and configured model access. Source is published at [dafzthomas/hermes-teammates](https://github.com/dafzthomas/hermes-teammates). The unsigned package is a local build; no binary release is published. The [Checks workflow](https://github.com/dafzthomas/hermes-teammates/actions/workflows/ci.yml) runs the portable build and test gates. Native runtime and VM evidence below comes from local verification.
 
 The [feature map](research.md) records additional Grok capabilities outside this
 first local release, including voice, rich media, event/webhook triggers,

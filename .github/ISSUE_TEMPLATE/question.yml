@@ -1,0 +1,21 @@
+name: Setup question
+description: Ask about installation, configuration, or documented behavior.
+title: '[Question]: '
+body:
+  - type: markdown
+    attributes:
+      value: 'Check README.md and SUPPORT.md first. Keep credentials and private app data out of the report.'
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Explain what you want to do and what you have already tried.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment and redacted error
+      description: Include the app commit, OS and architecture, Node.js version, Hermes version, and relevant error text.
+    validations:
+      required: true

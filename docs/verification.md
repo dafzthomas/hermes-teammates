@@ -15,7 +15,9 @@ Verified locally on 24 October 2026, on macOS Apple silicon. These checks establ
 | Apple VM/native MCP integration    | Passed with explicit opt-in             | Separate VM homes, no provider environment, persistence, takeover fence, actual native MCP tools and restart |
 | Computer browser and packaged UI   | Passed                                  | Live pixels, manual browser navigation, hand-back, sleep/wake, reload and narrow-screen layout               |
 | Dependency audit                   | 0 known vulnerabilities at verification | npm's current advisory database for the locked dependency tree                                               |
-| GitHub Actions                     | Workflow supplied; not run remotely     | CI definition only; no repository has been published                                                         |
+| GitHub Actions                     | See hosted workflow runs                | Portable Ubuntu build/tests; native Hermes/browser/VM checks remain local                                    |
+
+The public [Checks workflow](https://github.com/dafzthomas/hermes-teammates/actions/workflows/ci.yml) runs formatting, build, and default tests on Ubuntu with Node.js 24. A runner without Hermes skips native integration tests. Hosted green checks do not replace the local runtime acceptance below.
 
 ## Native Hermes test
 

@@ -1,5 +1,8 @@
 # Hermes Teammates
 
+[![Checks](https://github.com/dafzthomas/hermes-teammates/actions/workflows/ci.yml/badge.svg)](https://github.com/dafzthomas/hermes-teammates/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 An original, MIT-licensed desktop workspace for persistent Hermes agents, inspired by Grok Bot's dark, three-column interface. Hermes runs the agents; this app gives them a roster, conversations and a details panel.
 
 ![Compiled Hermes Teammates workspace](docs/screenshot.png)
@@ -8,13 +11,15 @@ _Actual compiled interface with controlled integration-test content._
 
 Each Bot has a role, model configuration, conversation history, memory, skills, workspace files, API credentials and an encrypted website-login vault. Bots can hand work to one another through Hermes' native `message_agent` tool. Groups bring multiple Bots into one visible conversation. Routines use Hermes' own cron store and scheduler. Each Bot can also have its own Linux computer with a live screen and manual takeover, plus MCP app connections with editable action reviews.
 
-**First local release:** this is a working foundation, not full Grok Bot feature parity. See [the feature audit and alternatives](docs/research.md), [architecture and security boundaries](docs/architecture.md), and [verification](docs/verification.md), and the [local release audit](docs/delivery.md).
+**Early release:** this is a working local application with the core Bot workflows. The [feature audit](docs/research.md) records differences from Grok Bot and existing alternatives. See [architecture](docs/architecture.md), [verification](docs/verification.md), and the [delivery audit](docs/delivery.md) for implementation details and tested boundaries.
 
 ## Run
 
 Requirements: Node.js 24+, npm, and a working [Hermes Agent installation](https://hermes-agent.nousresearch.com/docs/getting-started/installation). Install and configure Hermes separately before launching. This app disables Hermes' automatic dependency installation during agent runs.
 
 ```sh
+git clone https://github.com/dafzthomas/hermes-teammates.git
+cd hermes-teammates
 npm ci
 npm run build
 npm start
@@ -26,7 +31,7 @@ Open <http://127.0.0.1:4310>. For a native Electron window:
 npm run desktop
 ```
 
-Development: `npm run dev`. Produce an unpacked desktop app: `npm run package:desktop` (platform signing/distribution is a separate release step).
+Development: `npm run dev`. Produce an unpacked desktop app with `npm run package:desktop`. Signed binaries and an installer release are not supplied. The browser app and Electron shell were tested on macOS Apple silicon; Linux and Windows installation remain unverified. The optional Bot computers require Apple silicon and macOS 26 or later.
 
 ## Model access
 
@@ -176,5 +181,13 @@ npm run build
 ```
 
 `npm test` runs store/API checks and, if Hermes is installed, a real Hermes integration with a local inference fixture. It does not test live paid providers. Browser/desktop checks are documented separately.
+
+## Contribute and get help
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for checkout setup, project structure, checks, and pull requests. Use [SUPPORT.md](SUPPORT.md) for setup questions and bug reports. Report vulnerabilities through [SECURITY.md](SECURITY.md), and follow the [code of conduct](CODE_OF_CONDUCT.md) in project spaces. User-visible changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+## License and acknowledgments
+
+Hermes Teammates is licensed under the [MIT license](LICENSE).
 
 This project contains no proprietary Grok app bundle, extracted UI code, logos or fonts. The private `reference/` research checkouts are ignored and are not part of the project or a desktop package. [unGrokBot](https://github.com/dafzthomas/unGrokBot) informed the interaction research; it requires the original app bundle, whereas this interface is authored independently. Not affiliated with xAI, Cursor or Nous Research. Hermes and dependencies retain their own licenses. Adapted MIT computer-runtime material and the noVNC screen client are credited in [third-party notices](THIRD_PARTY_NOTICES.md).

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/dafzthomas/hermes-teammates/security/advisories/new
+    about: Use a private report instead of a public issue for vulnerabilities.
+  - name: Read the setup and support guide
+    url: https://github.com/dafzthomas/hermes-teammates/blob/main/SUPPORT.md
+    about: Check the prerequisites and required diagnostic information.

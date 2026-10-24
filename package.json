@@ -16,8 +16,8 @@
     "desktop": "npm run build && node scripts/desktop.mjs",
     "package:desktop": "npm run build && electron-builder --dir",
     "verify:ui": "npm run build && tsx scripts/verify-ui.ts",
-    "format": "prettier --write src server scripts test electron *.json *.ts *.html README.md docs/*.md .github/workflows/*.yml",
-    "format:check": "prettier --check src server scripts test electron *.json *.ts *.html README.md docs/*.md .github/workflows/*.yml",
+    "format": "prettier --write src server scripts test electron .github *.json *.ts *.html *.md docs/*.md",
+    "format:check": "prettier --check src server scripts test electron .github *.json *.ts *.html *.md docs/*.md",
     "verify:computer": "npm run build && tsx scripts/verify-computer.ts",
     "verify:connections": "npm run build && tsx scripts/verify-connections.ts",
     "verify:vault": "npm run build && tsx scripts/verify-vault.ts"
@@ -86,5 +86,13 @@
       "target": "nsis"
     }
   },
-  "author": "Hermes Teammates contributors"
+  "author": "Hermes Teammates contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dafzthomas/hermes-teammates.git"
+  },
+  "homepage": "https://github.com/dafzthomas/hermes-teammates#readme",
+  "bugs": {
+    "url": "https://github.com/dafzthomas/hermes-teammates/issues"
+  }
 }
