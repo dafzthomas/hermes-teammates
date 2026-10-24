@@ -47,6 +47,14 @@ const groupSchema = z.array(
 );
 type Target = { kind: 'bot' | 'group'; id: string; title: string };
 const colors = ['white', 'violet', 'green', 'orange', 'blue', 'pink'] as const;
+const editorLabels = {
+  new: 'New Bot',
+  settings: 'Bot settings',
+  routine: 'New routine',
+  group: 'New group',
+  memory: 'Edit memory',
+  credential: 'Add credential',
+};
 function Face({ bot }: { bot: Pick<Bot, 'name' | 'color'> }) {
   return (
     <span className={`face ${bot.color}`} aria-hidden="true">
@@ -239,9 +247,7 @@ function Workspace({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [active, setActive] = useState(true);
-  const [editor, setEditor] = useState<
-    'new' | 'settings' | 'routine' | 'group' | 'memory' | 'credential'
-  >();
+  const [editor, setEditor] = useState<keyof typeof editorLabels>();
   const [info, setInfo] = useState(false);
   const transcriptRef = useRef<HTMLElement>(null);
   const followReplies = useRef(true);
@@ -877,34 +883,10 @@ function Workspace({
             className="sheet"
             role="dialog"
             aria-modal="true"
-            aria-label={
-              editor === 'new'
-                ? 'New Bot'
-                : editor === 'group'
-                  ? 'New group'
-                  : editor === 'settings'
-                    ? 'Bot settings'
-                    : editor === 'routine'
-                      ? 'New routine'
-                      : editor === 'memory'
-                        ? 'Edit memory'
-                        : 'Add credential'
-            }
+            aria-label={editorLabels[editor]}
           >
             <header>
-              <h2>
-                {editor === 'new'
-                  ? 'New Bot'
-                  : editor === 'group'
-                    ? 'New group'
-                    : editor === 'settings'
-                      ? 'Bot settings'
-                      : editor === 'routine'
-                        ? 'New routine'
-                        : editor === 'memory'
-                          ? 'Edit memory'
-                          : 'Add credential'}
-              </h2>
+              <h2>{editorLabels[editor]}</h2>
               <Icon label="Close form" onClick={() => setEditor(undefined)}>
                 <X size={22} />
               </Icon>
