@@ -38,6 +38,11 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--gateway" in sys.argv:
+        # Hermes owns session state, tool execution, requests and turn lifecycle.
+        from tui_gateway.entry import main as gateway_main
+        gateway_main()
+        sys.exit(0)
     try:
         main()
     except Exception as exc:

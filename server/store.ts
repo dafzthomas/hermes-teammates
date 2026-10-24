@@ -113,7 +113,7 @@ export class Store {
             },
       agent: { max_turns: 30, bot_mode_protocol: true },
       auth: { adopt_external_logins: p.kind === 'claude' && p.borrowLogin },
-      approvals: { single_query_mode: 'deny' },
+      approvals: { mode: 'manual', single_query_mode: 'deny' },
       terminal: { backend: 'local', cwd: path.join(home, 'workspace') },
       telemetry: { enabled: false },
     };

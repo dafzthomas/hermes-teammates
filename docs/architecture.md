@@ -9,7 +9,7 @@ React / Electron
         │ same-origin HTTP + server-sent change notifications
 Loopback server
         ├── teammates.json: Bot roster, groups, activity, group display transcript
-        └── Hermes CLI: one process per active Bot turn
+        └── Hermes gateway: one persistent stdio process per active Bot profile
                  ├── profile configuration and credential file
                  ├── native SQLite sessions (app reads, never rewrites)
                  ├── MEMORY.md / USER.md / skills / workspace
@@ -37,15 +37,13 @@ Only installed dependency generations are linked to the existing Hermes installa
 
 ## Runtime protocol
 
-The adapter starts the configured executable without a shell:
+The adapter resolves the installed Hermes Python environment and launches its native `tui_gateway.entry` through a small bootstrap. Each Bot has a separate persistent process and private stdio JSON-RPC channel. There is no gateway HTTP/WebSocket port exposed to the browser. Hermes owns session creation/resumption, inference, tool execution and persistence; the app validates and presents native events.
 
-```text
-hermes chat --query-file - --format stream-json
-  --continue "Bot Chat" --create-if-missing
-  --provider anthropic|custom --model <id> --in <Bot workspace>
-```
+`session.create` / `session.resume` selects a conversation, `prompt.submit` starts a turn, and `message.delta`, `tool.start`, `tool.complete` and `message.complete` drive the interface. A turn settles only on a terminal event or failure, not on the initial submit acknowledgement. A native gateway stays alive across turns. Settings, memory, skill and credential edits invalidate an idle gateway so its next turn loads the new resources.
 
-The prompt is written to stdin. Validated JSONL events update streaming text and tool activity. Completion requires a terminal result and a successful process exit. Stop targets the owned POSIX process group (Windows uses process termination); work already completed is not undone. There is a 15-minute app-owned turn timeout. Unexpected process exit becomes a visible error.
+The client advertises native server-request support. Hermes sends `clarify`, `approval`, `secret` or `sudo` requests; the app keeps their IDs and validated public fields in memory and renders a matching card. Responses must belong to that Bot and match the request kind. Approval scopes must come from Hermes' offered choices. Native cancellation/timeout or Stop clears the card. Unsupported interaction types receive an explicit JSON-RPC error rather than a fabricated answer. Secret responses go directly to the private runtime channel and are not copied into app metadata or activity.
+
+`session.steer` queues instructions for the next tool result and reports rejection if the turn can no longer accept them. `session.interrupt` stops the current turn. The app waits for its terminal event before admitting a replacement turn, avoiding a late interrupted completion settling the new turn. A five-second interruption deadline closes an unresponsive gateway. A 15-minute app-owned turn timeout requests Stop. Shutdown terminates all owned gateway/scheduler children and waits for their exits; no completed side effects are undone.
 
 The child environment passes a small OS-variable allowlist, sets the correct HERMES_HOME, and excludes ambient provider keys. Credentials are loaded by Hermes from that profile. `HERMES_DISABLE_LAZY_INSTALLS=1` prevents bot startup from initiating source-update dependency installation or launcher publication. Managed installations reuse existing dependencies; custom installations can override executable, source, Python, tool store and dependency paths.
 
@@ -64,9 +62,9 @@ Group membership and a display transcript live in app metadata. On a user messag
 - App directories are created owner-only; credentials and atomic state/config writes use mode 0600. `.env` is plaintext. No encryption-at-rest claim is made.
 - The API returns credential names, not values. Known raw values are redacted from displayed transcripts/activity. Redaction is best-effort and cannot protect transformed secrets or an external tool's side effects.
 - File editing accepts simple names and rejects traversal/symlink targets. Uploads are limited to text/source files. Native Hermes tools remain more capable than this file UI.
-- Native one-shot approval mode is `deny`. This blocks approval-gated actions in this execution mode; it does not guarantee every external action requires approval. Role text is guidance, not enforcement.
+- Interactive chat uses native `manual` approvals and displays the requested command, description and allowed decision scopes. One-shot cron execution retains `deny`. Not every tool action is approval-gated. Role text is guidance, not enforcement.
 - Profile isolation organizes data. Native tools run as the current OS user, so a malicious instruction can attempt to read other profiles or local files. Configure a real container/remote sandbox before using untrusted skills or sensitive production credentials.
 
 ## Known operational limits
 
-Run state is in memory. A backend crash/restart does not reconstruct active children or resume an unfinished group sequence. Native Hermes transcripts and cron job stores remain durable. There is no multi-backend writer coordination for app metadata. The native scheduler may use its own execution controls independently of interactive chat. No automatic login, external messaging or deployment is performed by installing this app.
+Run state and pending cards are in backend memory. Reloading the browser reconnects to pending cards without repeating a tool call. A backend crash/restart does not reconstruct active children or resume an unfinished group sequence. Native Hermes transcripts and cron job stores remain durable. There is no multi-backend writer coordination for app metadata. The native scheduler may use its own execution controls independently of interactive chat. No automatic login, external messaging or deployment is performed by installing this app.

@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 const artifacts = path.resolve('test-artifacts');
 fs.mkdirSync(artifacts, { recursive: true });
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'teammates-ui-'));
+const interactiveIssued = new Set<string>();
 const fixture = http.createServer(async (req, res) => {
   let raw = '';
   for await (const chunk of req) raw += String(chunk);
@@ -17,12 +18,44 @@ const fixture = http.createServer(async (req, res) => {
     return;
   }
   const body = JSON.parse(raw);
+  const history = JSON.stringify(body.messages);
+  const toolNames: string[] = (body.tools || []).map(
+    (t: { function: { name: string } }) => t.function.name,
+  );
+  let tool: { name: string; arguments: string } | undefined;
+  for (const marker of [
+    'UI_QUESTION_PROOF',
+    'UI_APPROVAL_PROOF',
+    'UI_STOP_PROOF',
+    'UI_DESKTOP_QUESTION_PROOF',
+  ]) {
+    if (!history.includes(marker) || interactiveIssued.has(marker)) continue;
+    const name = marker === 'UI_APPROVAL_PROOF' ? 'terminal' : 'clarify';
+    if (!toolNames.includes(name)) continue;
+    interactiveIssued.add(marker);
+    tool = {
+      name,
+      arguments: JSON.stringify(
+        name === 'terminal'
+          ? { command: 'rm -rf approval-target' }
+          : { question: 'Which launch color should I use?', choices: ['Green', 'Blue'] },
+      ),
+    };
+    break;
+  }
   const content =
     'I reviewed the launch brief. The next step is to confirm the sources and prepare a concise draft for review.';
   res.setHeader('Content-Type', body.stream ? 'text/event-stream' : 'application/json');
+  const message = tool
+    ? {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: `ui_tool_${interactiveIssued.size}`, type: 'function', function: tool }],
+      }
+    : { role: 'assistant', content };
   if (body.stream)
     res.end(
-      `data: ${JSON.stringify({ id: 'ui-fixture', object: 'chat.completion.chunk', model: 'ui-fixture', choices: [{ index: 0, delta: { role: 'assistant', content }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: 'ui-fixture', object: 'chat.completion.chunk', model: 'ui-fixture', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: 'ui-fixture', object: 'chat.completion.chunk', model: 'ui-fixture', choices: [{ index: 0, delta: tool ? { ...message, tool_calls: message.tool_calls?.map((call, index) => ({ index, ...call })) } : message, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: 'ui-fixture', object: 'chat.completion.chunk', model: 'ui-fixture', choices: [{ index: 0, delta: {}, finish_reason: tool ? 'tool_calls' : 'stop' }] })}\n\ndata: [DONE]\n\n`,
     );
   else
     res.end(
@@ -30,7 +63,7 @@ const fixture = http.createServer(async (req, res) => {
         id: 'ui-fixture',
         object: 'chat.completion',
         model: 'ui-fixture',
-        choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
+        choices: [{ index: 0, message, finish_reason: tool ? 'tool_calls' : 'stop' }],
         usage: { prompt_tokens: 20, completion_tokens: 20, total_tokens: 40 },
       }),
     );
@@ -50,6 +83,13 @@ const backend = spawn(process.execPath, ['dist/server/index.js'], {
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 backend.stderr.resume();
+async function stopBackend() {
+  if (backend.exitCode !== null || backend.signalCode !== null) return;
+  await new Promise<void>((resolve) => {
+    backend.once('exit', () => resolve());
+    backend.kill('SIGTERM');
+  });
+}
 await new Promise<void>((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('Backend startup timed out')), 20000);
   backend.stdout.on('data', (data) => {
@@ -154,6 +194,56 @@ try {
   await expect(
     page.locator('.bubble').filter({ hasText: 'I reviewed the launch brief.' }),
   ).toBeVisible({ timeout: 30000 });
+  await page
+    .getByLabel('Message', { exact: true })
+    .fill('UI_QUESTION_PROOF: ask me about the launch.');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Researcher question' })).toBeVisible({
+    timeout: 30000,
+  });
+  await page.reload();
+  await page
+    .getByRole('navigation', { name: 'Bots' })
+    .getByRole('button', { name: /Researcher/ })
+    .click();
+  const questionCard = page.getByRole('region', { name: 'Researcher question' });
+  await expect(questionCard).toBeVisible({ timeout: 30000 });
+  await expect(
+    page.getByText(
+      'Use primary sources. Keep each brief concise, with links and clear decisions.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page.getByLabel('Message', { exact: true }).fill('Include source links when you continue.');
+  await page.getByRole('button', { name: 'Steer Bot', exact: true }).click();
+  await expect(
+    page.getByText('Steering queued for the next tool result', { exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: path.join(artifacts, 'question-desktop.png'), fullPage: true });
+  await questionCard.getByRole('radio', { name: /Green/ }).check();
+  await questionCard.getByRole('button', { name: 'Send answer', exact: true }).click();
+  await expect(questionCard).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toHaveCount(0, {
+    timeout: 30000,
+  });
+  await page
+    .getByLabel('Message', { exact: true })
+    .fill('UI_APPROVAL_PROOF: remove the temporary target.');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  const approvalCard = page.getByRole('region', { name: 'Researcher approval request' });
+  await expect(approvalCard).toBeVisible({ timeout: 30000 });
+  await page.screenshot({ path: path.join(artifacts, 'approval-desktop.png'), fullPage: true });
+  await approvalCard.getByRole('button', { name: 'Deny', exact: true }).click();
+  await expect(approvalCard).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toHaveCount(0, {
+    timeout: 30000,
+  });
+  await page.getByLabel('Message', { exact: true }).fill('UI_STOP_PROOF: ask before continuing.');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await expect(questionCard).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Stop Bot', exact: true }).click();
+  await expect(questionCard).toHaveCount(0, { timeout: 10000 });
+  await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Thread', exact: true }).click();
   await dialog.getByLabel('Thread name').fill('Source checklist');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
@@ -161,7 +251,7 @@ try {
   await expect(page.locator('.bubble')).toHaveCount(0);
   await page.getByRole('button', { name: 'Main conversation', exact: true }).click();
   await expect(
-    page.locator('.bubble').filter({ hasText: 'I reviewed the launch brief.' }),
+    page.locator('.bubble').filter({ hasText: 'I reviewed the launch brief.' }).first(),
   ).toBeVisible({ timeout: 30000 });
   // Configure primary Bot through the same settings form for a two-profile group.
   await page
@@ -198,13 +288,17 @@ try {
   await page.screenshot({ path: path.join(artifacts, 'workspace-mobile.png'), fullPage: true });
   expect(errors).toEqual([]);
   console.log(
-    'Browser passed: create/edit bots, credentials masking, memory, skills, text upload, native chat, routines pause/resume, history, threads, two-Bot group, mobile layout.',
+    'Browser passed: bot resources, persistent native chat, question recovery after reload, live steering, approval denial, Stop clears cards, routines, threads, two-Bot group, mobile layout.',
   );
+  await browser.close();
+  await stopBackend();
   const desktopEnv: Record<string, string> = { TEAMMATES_DATA_DIR: data };
   for (const [name, value] of Object.entries(process.env))
     if (value !== undefined && name !== 'ELECTRON_RUN_AS_NODE') desktopEnv[name] = value;
   const desktop = await _electron.launch({
-    args: ['electron/main.cjs'],
+    ...(process.env.TEAMMATES_PACKAGED_EXECUTABLE
+      ? { executablePath: process.env.TEAMMATES_PACKAGED_EXECUTABLE, args: [] }
+      : { args: ['electron/main.cjs'] }),
     env: desktopEnv,
     timeout: 30000,
   });
@@ -214,20 +308,36 @@ try {
       timeout: 30000,
     });
     await expect(window.getByRole('button', { name: 'New Bot', exact: true })).toBeVisible();
+    await window
+      .getByRole('navigation', { name: 'Bots' })
+      .getByRole('button', { name: /Researcher/ })
+      .click();
+    await window
+      .getByLabel('Message', { exact: true })
+      .fill('UI_DESKTOP_QUESTION_PROOF: ask which color to use.');
+    await window.getByRole('button', { name: 'Send message', exact: true }).click();
+    const question = window.getByRole('region', { name: 'Researcher question' });
+    await expect(question).toBeVisible({ timeout: 30000 });
     await window.screenshot({ path: path.join(artifacts, 'electron-desktop.png') });
+    await question.getByRole('radio', { name: /Green/ }).check();
+    await question.getByRole('button', { name: 'Send answer', exact: true }).click();
+    await expect(question).toHaveCount(0);
+    await expect(window.getByRole('button', { name: 'Stop Bot', exact: true })).toHaveCount(0, {
+      timeout: 30000,
+    });
     console.log(
-      'Electron passed: compiled backend launches, native window renders and connects to Hermes.',
+      'Electron passed: native window, persistent gateway, resumed history, real question tool and answer.',
     );
   } finally {
     await desktop.close();
   }
 } catch (error) {
-  await page.screenshot({ path: path.join(artifacts, 'failure.png'), fullPage: true });
+  if (!page.isClosed())
+    await page.screenshot({ path: path.join(artifacts, 'failure.png'), fullPage: true });
   throw error;
 } finally {
   await browser.close();
-  backend.kill('SIGTERM');
-  await new Promise<void>((resolve) => backend.once('exit', () => resolve()));
+  await stopBackend();
   fixture.closeAllConnections();
   await new Promise<void>((resolve) => fixture.close(() => resolve()));
   fs.rmSync(data, { recursive: true, force: true });

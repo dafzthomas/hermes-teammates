@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { z } from 'zod';
+import { RequestCard } from './RequestCard';
 import {
   snapshotSchema,
   botDetailSchema,
@@ -201,6 +202,12 @@ export function App() {
   const running = state?.running.find((r) => r.botId === selected && r.title === title);
   const groupWorking = group && state?.running.some((r) => group.members.includes(r.botId));
   const active = group ? groupWorking : running;
+  const requests =
+    state?.requests.filter((request) =>
+      group
+        ? group.members.includes(request.botId) && request.title === `Group ${group.id}`
+        : request.botId === selected && request.title === title,
+    ) || [];
   const notify = (text: string) => {
     setNotice(text);
     setTimeout(() => setNotice(''), 3500);
@@ -275,7 +282,13 @@ export function App() {
   }, [runningCount, refreshDetail]);
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [detail.messages.length, groupMessages.length, running?.text.length, pending]);
+  }, [
+    detail.messages.length,
+    groupMessages.length,
+    running?.text.length,
+    pending,
+    requests.length,
+  ]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
@@ -570,6 +583,13 @@ export function App() {
     const text = draft.trim();
     setError('');
     try {
+      if (running && !group) {
+        await api(`/bots/${selected}/steer`, { text, title });
+        setDraft('');
+        notify('Steering queued for the next tool result');
+        return;
+      }
+      if (active) return;
       await api(group ? `/groups/${group.id}/messages` : `/bots/${selected}/messages`, {
         text,
         title,
@@ -949,6 +969,20 @@ export function App() {
               </div>
             </div>
           )}
+          {requests.map((request) => (
+            <RequestCard
+              key={request.id}
+              request={request}
+              botName={state?.bots.find((b) => b.id === request.botId)?.name || 'Bot'}
+              respond={async (response) => {
+                await api(
+                  `/bots/${request.botId}/requests/${encodeURIComponent(request.id)}`,
+                  response,
+                );
+                await refreshState();
+              }}
+            />
+          ))}
           {latestError && !running && (
             <div className="run-error">
               <CircleHelp size={17} />
@@ -982,7 +1016,11 @@ export function App() {
           <form className="composer" onSubmit={send}>
             <textarea
               aria-label="Message"
-              placeholder={`Message ${group?.name || bot?.name || 'Hermes'}…`}
+              placeholder={
+                running && !group
+                  ? `Steer ${bot?.name} while it works…`
+                  : `Message ${group?.name || bot?.name || 'Hermes'}…`
+              }
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -1003,32 +1041,39 @@ export function App() {
                   <ChevronDown size={12} />
                 </button>
               </div>
-              {active ? (
-                <button
-                  type="button"
-                  className="send-button stop"
-                  aria-label="Stop Bot"
-                  onClick={() => {
-                    if (group) for (const id of group.members) void api(`/bots/${id}/stop`, {});
-                    else void api(`/bots/${selected}/stop`, {});
-                  }}
-                >
-                  <Square size={13} fill="currentColor" />
-                </button>
-              ) : (
-                <button
-                  className="send-button"
-                  aria-label="Send message"
-                  disabled={!draft.trim() || !state?.runtime.available}
-                >
-                  <ArrowUp size={19} />
-                </button>
-              )}
+              <div className="send-actions">
+                {active && (
+                  <button
+                    type="button"
+                    className="send-button stop"
+                    aria-label="Stop Bot"
+                    onClick={() => {
+                      if (group) for (const id of group.members) void api(`/bots/${id}/stop`, {});
+                      else void api(`/bots/${selected}/stop`, {});
+                    }}
+                  >
+                    <Square size={13} fill="currentColor" />
+                  </button>
+                )}
+                {(!active || !group) && (
+                  <button
+                    className="send-button"
+                    aria-label={running ? 'Steer Bot' : 'Send message'}
+                    disabled={!draft.trim() || !state?.runtime.available}
+                  >
+                    <ArrowUp size={19} />
+                  </button>
+                )}
+              </div>
             </div>
           </form>
           <div className="composer-caption">
             <span>Powered by Hermes. Made to be yours.</span>
-            <span>↵ to send · Shift ↵ for a new line</span>
+            <span>
+              {running && !group
+                ? 'Steering arrives with the next tool result'
+                : '↵ to send · Shift ↵ for a new line'}
+            </span>
           </div>
         </div>
       </main>

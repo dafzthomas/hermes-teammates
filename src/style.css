@@ -1647,3 +1647,127 @@ legend {
     scroll-behavior: auto !important;
   }
 }
+.request-card {
+  margin: 20px 0 24px 39px;
+  max-width: 680px;
+  padding: 20px;
+  background: #1b1b1d;
+  border: 1px solid #41413c;
+  border-radius: 14px;
+  color: #efefec;
+}
+.request-card header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 16px;
+}
+.request-card header > svg {
+  color: #d8d29a;
+  flex-shrink: 0;
+}
+.request-card header > span {
+  margin-left: auto;
+  color: #999;
+  font-size: 12px;
+}
+.request-card p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.request-card pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #131313;
+  border-radius: 7px;
+  padding: 12px;
+  font-size: 12px;
+}
+.request-card fieldset {
+  border: 0;
+  padding: 0;
+  margin: 16px 0;
+  min-width: 0;
+}
+.request-card legend {
+  font-weight: 500;
+  margin-bottom: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.request-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  padding: 10px 12px;
+  margin-bottom: 7px;
+  background: #252527;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.request-card input[type='radio'],
+.request-card input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+  accent-color: #dbd9bd;
+}
+.request-custom,
+.request-card form > label {
+  display: grid;
+  gap: 8px;
+  color: #aaa;
+  font-size: 12px;
+  margin-top: 14px;
+}
+.request-card textarea,
+.request-card input[type='password'] {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #444;
+  border-radius: 7px;
+  background: #151515;
+  color: #eee;
+  padding: 10px;
+  font: inherit;
+  resize: vertical;
+}
+.request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.request-actions button {
+  border: 1px solid #494949;
+  border-radius: 7px;
+  background: transparent;
+  color: #ccc;
+  padding: 8px 13px;
+  font-size: 12px;
+}
+.request-actions button.primary {
+  background: #e8e7df;
+  border-color: #e8e7df;
+  color: #191919;
+}
+.request-note {
+  color: #969696;
+}
+.request-error {
+  color: #f3a1a1;
+}
+.send-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 600px) {
+  .request-card {
+    margin-left: 0;
+    padding: 16px;
+  }
+  .request-card header {
+    flex-wrap: wrap;
+  }
+}

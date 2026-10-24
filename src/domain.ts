@@ -82,9 +82,40 @@ export const botDetailSchema = z.object({
   routineError: z.string().nullable(),
 });
 export type BotDetail = z.infer<typeof botDetailSchema>;
+const requestIdentity = { id: z.string(), botId: z.string(), title: z.string() };
+export const questionSchema = z.object({
+  qid: z.string(),
+  question: z.string(),
+  choices: z.array(z.string()).nullable().optional(),
+  multi_select: z.boolean().optional(),
+});
+export const interactiveRequestSchema = z.discriminatedUnion('kind', [
+  z.object({ ...requestIdentity, kind: z.literal('clarify'), questions: z.array(questionSchema) }),
+  z.object({
+    ...requestIdentity,
+    kind: z.literal('approval'),
+    command: z.string(),
+    description: z.string(),
+    choices: z.array(z.enum(['once', 'session', 'always', 'deny'])),
+  }),
+  z.object({
+    ...requestIdentity,
+    kind: z.literal('secret'),
+    prompt: z.string(),
+    envVar: z.string().optional(),
+  }),
+]);
+export type InteractiveRequest = z.infer<typeof interactiveRequestSchema>;
+export const requestResponseSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('clarify'), answers: z.record(z.string(), z.string().max(16000)) }),
+  z.object({ kind: z.literal('approval'), choice: z.enum(['once', 'session', 'always', 'deny']) }),
+  z.object({ kind: z.literal('secret'), value: z.string().max(16000) }),
+]);
+export type RequestResponse = z.infer<typeof requestResponseSchema>;
 export const snapshotSchema = z.object({
   bots: z.array(botSchema),
   groups: z.array(groupSchema),
+  requests: z.array(interactiveRequestSchema).default([]),
   running: z.array(
     z.object({ botId: z.string(), text: z.string(), activity: z.string(), title: z.string() }),
   ),

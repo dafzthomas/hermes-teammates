@@ -3,6 +3,8 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 const net = require('node:net');
 let backend;
+let stopping = false;
+let backendStopped = false;
 
 async function freePort() {
   const server = net.createServer();
@@ -79,6 +81,21 @@ app
     app.quit();
   });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => {
-  if (backend && backend.exitCode === null) backend.kill('SIGTERM');
+app.on('before-quit', (event) => {
+  if (!backend || backend.exitCode !== null || backend.signalCode !== null || backendStopped)
+    return;
+  event.preventDefault();
+  if (stopping) return;
+  stopping = true;
+  const timer = setTimeout(() => {
+    backendStopped = true;
+    backend.kill('SIGKILL');
+    app.quit();
+  }, 5500);
+  backend.once('exit', () => {
+    clearTimeout(timer);
+    backendStopped = true;
+    app.quit();
+  });
+  backend.kill('SIGTERM');
 });

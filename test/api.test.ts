@@ -43,7 +43,7 @@ test('Loopback API blocks browser-origin writes and never returns credential val
     });
     assert.equal(hostStatus, 403);
   } finally {
-    context.close();
+    await context.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     fs.rmSync(root, { recursive: true, force: true });
   }

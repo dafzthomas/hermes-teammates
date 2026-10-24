@@ -43,7 +43,7 @@ No real model credentials are included. The integration test uses a controlled l
 
 1. Open **New Bot**, give it a name and job, and select its model access.
 2. Add the relevant credentials, text files, memory or SKILL.md workflows in Bot details.
-3. Send a task. The transcript shows replies and tool results; **Activity** shows tools, handoffs and outcomes. Ask a Bot to message a named teammate when a specialist should help.
+3. Send a task. The transcript shows replies, tool results, question forms and approval cards; **Activity** shows tools, handoffs and outcomes. Answer a card to continue. While it works, send steering to the next tool result or press **Stop**. Ask a Bot to message a named teammate when a specialist should help.
 4. Create a group with at least two Bots for a shared discussion. Members answer sequentially using their own Hermes profiles.
 5. Create a routine for recurring work. Hermes accepts cron expressions, `every 2h`, or an ISO timestamp. Results appear in **Routines → Run results**.
 
@@ -53,15 +53,15 @@ Routines run while the backend is running. Closing the desktop app quits its bac
 
 The browser backend defaults to `~/.hermes-teammates`. Electron uses its OS application-data directory. To use the same data in either mode, set `TEAMMATES_DATA_DIR` to an absolute directory. The app does not import or change existing personal Hermes profiles.
 
-| Variable              | Purpose                                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------- |
-| `TEAMMATES_DATA_DIR`  | App metadata and dedicated Hermes profile root                                                          |
-| `PORT`                | Loopback HTTP port, default `4310`                                                                      |
-| `HERMES_EXECUTABLE`   | Hermes executable, default `~/.local/bin/hermes`                                                        |
-| `HERMES_PYTHON`       | Python interpreter for native routine management; discovered from modern Hermes launchers when possible |
-| `HERMES_SOURCE`       | Hermes source directory for the Python bridge; default `~/.hermes/hermes-agent`                         |
-| `HERMES_RUNTIME_DIR`  | Installed Hermes tool store; default `~/.hermes/tools`                                                  |
-| `HERMES_INSTALLS_DIR` | Installed dependency generations; default `~/.hermes/installs`                                          |
+| Variable              | Purpose                                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `TEAMMATES_DATA_DIR`  | App metadata and dedicated Hermes profile root                                                                     |
+| `PORT`                | Loopback HTTP port, default `4310`                                                                                 |
+| `HERMES_EXECUTABLE`   | Hermes executable, default `~/.local/bin/hermes`                                                                   |
+| `HERMES_PYTHON`       | Python interpreter for native interactive chat and routines; discovered from modern Hermes launchers when possible |
+| `HERMES_SOURCE`       | Hermes source directory for the Python bridge; default `~/.hermes/hermes-agent`                                    |
+| `HERMES_RUNTIME_DIR`  | Installed Hermes tool store; default `~/.hermes/tools`                                                             |
+| `HERMES_INSTALLS_DIR` | Installed dependency generations; default `~/.hermes/installs`                                                     |
 
 Managed Hermes installations share their installed dependencies through an `installs` directory link, while each Bot keeps separate data. Legacy/custom installations may need the path overrides above. Runtime compatibility is tested against the version recorded in [verification](docs/verification.md).
 
@@ -69,9 +69,9 @@ Managed Hermes installations share their installed dependencies through an `inst
 
 - Profiles separate data by default; they are **not OS security sandboxes**. Local tools run under your account and can access paths your account can access. Do not treat a Bot as isolated from another Bot's secrets against hostile instructions.
 - Credentials are stored in per-profile `.env` files with owner-only permissions, not an encrypted vault. The API returns credential names only. Known values are redacted from displayed transcripts, but transformed or previously unknown secrets cannot be guaranteed absent. Configure native Hermes external secret stores separately if needed.
-- One-shot approval mode is `deny`. Operations that Hermes gates fail rather than receiving blanket approval. This does not gate every tool or replace a sandbox. Interactive approval/question cards are not yet implemented.
+- Interactive chat uses Hermes manual approvals. Native gated actions display Allow/Deny cards; questions display choice or text forms, including multiple questions. Private credential/sudo prompts use a masked input. Unattended one-shot routines retain `deny` approval mode. Hermes does not gate every tool; these controls do not replace a sandbox.
 - The server binds to loopback and rejects foreign Host/Origin headers. It has no remote-user authentication. Do not expose it directly to the internet.
-- No computer-view panel, managed browser-login UI, voice, mobile apps, Slack/email draft approval, webhooks, or account/team sharing is included. File uploads are text/source files up to 2 MB. Bot search filters the roster.
+- No computer-view panel, managed browser-login UI, voice, mobile apps, editable Slack/email send-draft cards, webhooks, or account/team sharing is included. File uploads are text/source files up to 2 MB. Bot search filters the roster.
 
 ## Develop
 

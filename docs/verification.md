@@ -8,7 +8,7 @@ Verified locally on 24 October 2026, on macOS Apple silicon. These checks establ
 | ---------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------ |
 | TypeScript strict checking         | Passed                                  | Application, server, tests and acceptance script typecheck                           |
 | Production build                   | Passed                                  | Vite client and bundled Node backend compile                                         |
-| Store/API/native integration tests | 5 passed, no skips on this machine      | Persistence, input boundaries, native agent execution and both inference protocols   |
+| Store/API/native integration tests | 6 passed, no skips on this machine      | Persistence, input boundaries, native agent execution and both inference protocols   |
 | Compiled browser acceptance        | Passed at 1440×1050 and 390×844         | Actual UI interactions and responsive rendering                                      |
 | Electron development shell         | Passed                                  | Native window loads the compiled backend and connects to Hermes                      |
 | Unpacked macOS application         | Passed                                  | Packaged asar backend/static assets, native Hermes detection and routine bridge work |
@@ -30,6 +30,12 @@ Verified behavior:
 - A due scheduled job actually executes and writes a result readable by the app.
 - Hermes sends inference through OpenAI-compatible Chat Completions.
 - Hermes also sends inference through native Anthropic Messages after selecting Claude access.
+- One native gateway process and Bot Chat session are reused across successive turns.
+- A native question pauses work; the supplied answer and queued steering reach the next model request. A batch also returns multiple independent answers, including multiple selected choices.
+- Native skill setup requests a masked credential, saves it to the owning profile, and returns only setup status to the model. The synthetic value is absent from inference requests, app metadata and the visible transcript.
+- Cross-Bot and mismatched-kind responses are rejected.
+- A gated file deletion cannot run before a decision. Deny leaves the owned test directory intact; Allow once removes it.
+- Stop withdraws a pending question, interrupts the native turn and permits a new turn in the same gateway without a stale completion race.
 
 No live provider key or Claude login was used by these tests. All keys are synthetic. This does not verify Claude Code OAuth reuse, real OpenAI/Anthropic account billing, Ollama model quality, or external app integrations.
 
@@ -41,13 +47,13 @@ After installing Playwright Chromium (`npx playwright install chromium`), run:
 npm run verify:ui
 ```
 
-The script starts the compiled backend and a controlled model endpoint. It interacts with the real rendered interface to create/edit a Bot, add a masked credential, save memory and a skill, upload a text file, create/pause/resume a native routine, send a real Hermes turn, reload history, open a separate thread, create a group and receive two profile responses. It checks narrow-screen navigation and absence of horizontal overflow, then launches the Electron shell. Temporary data and owned servers are removed afterward. Screenshots are written to ignored `test-artifacts/`.
+The script starts the compiled backend and a controlled model endpoint. It interacts with the real rendered interface to create/edit a Bot, add a masked credential, save memory and a skill, upload a text file, create/pause/resume a native routine, send a real Hermes turn, reload history, restore a pending question after window reload, submit steering and an answer, deny an approval, stop a waiting question, open a separate thread, create a group and receive two profile responses. It checks narrow-screen navigation and absence of horizontal overflow, then launches the Electron shell and answers another real native question. Temporary data and owned servers are removed afterward. Screenshots are written to ignored `test-artifacts/`.
 
 The README screenshot shows this compiled interface with controlled fixture content, not a live-provider response or a separate mockup.
 
-T3 collaborative preview was attempted first. Two snapshots on the opened app tab failed with `Preview snapshot failed: Preview automation snapshot timed out after 15000ms.` The available computer-use browser was also unavailable, so standalone Playwright was used for the compiled UI check. The failed preview did not count as UI verification.
+T3 collaborative preview was attempted first. Two snapshots on the opened app tab failed with `Preview snapshot failed: Preview automation snapshot timed out after 15000ms.` The available computer-use browser was also unavailable, so standalone Playwright was used for the compiled UI check. A further attempt during interactive-runtime verification also failed twice with `Preview automation navigate timed out after 15000ms.` and `Preview automation navigate timed out after 20000ms.` These failed previews did not count as UI verification.
 
-The packaged application was additionally launched directly from `release/mac-arm64/Hermes Teammates.app`, with a disposable data root. A native window connected to Hermes, loaded the empty Bot conversation and opened routine creation. This package is unsigned and not notarized. Windows/Linux builds and installation on another machine were not tested.
+The packaged application was additionally launched directly from `release/mac-arm64/Hermes Teammates.app`, with a disposable data root. The acceptance script can select it through `TEAMMATES_PACKAGED_EXECUTABLE`; it stops the browser backend before starting Electron so two backends do not own the same data. A native window connects to Hermes, resumes a stored conversation, executes a real native question tool and accepts the answer. This package is unsigned and not notarized. Windows/Linux builds and installation on another machine were not tested.
 
 ## Runtime compatibility and installation findings
 
@@ -64,4 +70,4 @@ The first desktop launch inherited `ELECTRON_RUN_AS_NODE=1` from this agent envi
 
 ## Unverified or absent
 
-Live paid providers and OAuth reuse; rich/binary attachments; computer/browser-control panel; interactive approvals, secret handoff and send-draft controls; webhook triggers; voice; remote authentication and always-on service operation; crash recovery of active runs; multi-user/team access; OS-level isolation; signed distribution and automatic updates. See [the feature audit](research.md) for the planned sequence.
+Live paid providers and OAuth reuse; rich/binary attachments; computer/browser-control panel; editable send-draft controls, native credential/sudo prompt execution with a real external service, vault login prompts; webhook triggers; voice; remote authentication and always-on service operation; crash recovery of active runs; multi-user/team access; OS-level isolation; signed distribution and automatic updates. See [the feature audit](research.md) for the planned sequence.

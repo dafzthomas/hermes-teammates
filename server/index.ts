@@ -5,7 +5,7 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { botInputSchema, routineSchema } from '../src/domain';
+import { botInputSchema, routineSchema, requestResponseSchema } from '../src/domain';
 import { Store } from './store';
 import { Hermes } from './hermes';
 
@@ -52,6 +52,7 @@ export function createApp(dataRoot: string) {
     res.json({
       bots: store.state.bots,
       groups: store.state.groups,
+      requests: [...hermes.requests.values()].map((request) => request.view),
       running: [...hermes.running.entries()].map(([botId, turn]) => ({
         botId,
         text: store.redact(botId, turn.text),
@@ -70,6 +71,7 @@ export function createApp(dataRoot: string) {
     if (hermes.running.has(req.params.id))
       return res.status(409).json({ error: 'Stop this Bot before changing its settings.' });
     res.json(store.updateBot(req.params.id, botInputSchema.parse(req.body)));
+    hermes.reset(req.params.id);
     changed();
   });
   app.get('/api/bots/:id', async (req, res) => {
@@ -123,8 +125,20 @@ export function createApp(dataRoot: string) {
   });
   app.post('/api/bots/:id/stop', (req, res) => {
     store.bot(req.params.id);
-    hermes.stop(req.params.id);
+    void hermes.stop(req.params.id);
     res.json({ ok: true });
+  });
+  app.post('/api/bots/:id/requests/:requestId', (req, res) => {
+    store.bot(req.params.id);
+    hermes.respond(req.params.id, req.params.requestId, requestResponseSchema.parse(req.body));
+    res.json({ ok: true });
+  });
+  app.post('/api/bots/:id/steer', async (req, res) => {
+    store.bot(req.params.id);
+    const body = z
+      .object({ title: z.string().min(1).max(100), text: z.string().trim().min(1).max(60000) })
+      .parse(req.body);
+    res.json(await hermes.steer(req.params.id, body.title, body.text));
   });
   app.put('/api/bots/:id/memory', (req, res) => {
     const body = z
@@ -133,12 +147,18 @@ export function createApp(dataRoot: string) {
     if (hermes.running.has(req.params.id))
       return res.status(409).json({ error: 'Wait for this Bot to finish before editing memory.' });
     store.saveMemory(req.params.id, body.kind, body.content);
+    hermes.reset(req.params.id);
     changed();
     res.json({ ok: true });
   });
   app.put('/api/bots/:id/skills/:name', (req, res) => {
+    if (hermes.running.has(req.params.id))
+      return res
+        .status(409)
+        .json({ error: 'Wait for this Bot to finish before editing its skills.' });
     const body = z.object({ content: z.string().max(100000) }).parse(req.body);
     store.atomic(store.safeFile(req.params.id, 'skills', req.params.name), body.content);
+    hermes.reset(req.params.id);
     changed();
     res.json({ ok: true });
   });
@@ -154,13 +174,23 @@ export function createApp(dataRoot: string) {
     res.type('text/plain').send(store.redact(req.params.id, fs.readFileSync(file, 'utf8')));
   });
   app.put('/api/bots/:id/secrets/:name', (req, res) => {
+    if (hermes.running.has(req.params.id))
+      return res
+        .status(409)
+        .json({ error: 'Wait for this Bot to finish before changing its credentials.' });
     const body = z.object({ value: z.string().min(1).max(16000) }).parse(req.body);
     store.setSecret(req.params.id, req.params.name, body.value);
+    hermes.reset(req.params.id);
     changed();
     res.json({ ok: true });
   });
   app.delete('/api/bots/:id/secrets/:name', (req, res) => {
+    if (hermes.running.has(req.params.id))
+      return res
+        .status(409)
+        .json({ error: 'Wait for this Bot to finish before changing its credentials.' });
     store.setSecret(req.params.id, req.params.name, null);
+    hermes.reset(req.params.id);
     changed();
     res.json({ ok: true });
   });
@@ -265,9 +295,9 @@ export function createApp(dataRoot: string) {
     app,
     store,
     hermes,
-    close: () => {
-      hermes.close();
+    close: async () => {
       for (const res of clients) res.end();
+      await hermes.close();
     },
   };
 }
@@ -300,9 +330,8 @@ async function main() {
   context.hermes.startScheduler();
   for (const signal of ['SIGINT', 'SIGTERM'])
     process.once(signal, () => {
-      context.close();
-      server.close();
-      setTimeout(() => process.exit(0), 1500).unref();
+      void context.close().finally(() => server.close(() => process.exit(0)));
+      setTimeout(() => process.exit(0), 5000).unref();
     });
 }
 

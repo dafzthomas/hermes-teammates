@@ -266,7 +266,7 @@ test(
       assert.match(claudeAnswer, /Claude transport integration complete/);
       assert.ok(anthropicRequests > 0, 'Claude access must use the native Anthropic protocol');
     } finally {
-      hermes.close();
+      await hermes.close();
       fixture.closeAllConnections();
       await new Promise<void>((resolve) => fixture.close(() => resolve()));
       fs.rmSync(root, { recursive: true, force: true });
