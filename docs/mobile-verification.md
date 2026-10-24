@@ -37,6 +37,13 @@ creation/pause, a due routine question reached through Activity, group
 creation and two attributed replies, device revocation, 390px overflow and page
 errors. Screenshots go into ignored `test-artifacts/`.
 
+Response-delay regressions also hold the initial memory response and verify that
+editing stays disabled until saved content arrives. A second check holds state
+responses after steering, verifies that Stop still reaches the real backend,
+backgrounds/resumes the client, delivers fresh idle state, then releases the older
+running snapshots. The client must keep the newer state. These checks exercise the
+compiled UI with controlled response timing; they do not simulate native OS events.
+
 For an interactive native acceptance host:
 
 ```sh
@@ -142,6 +149,12 @@ Failures were retained and diagnosed during verification:
   single-query fallback, which cannot wait for an answer. The final question flow
   sends a fresh task after Stop and uses that active Bot, matching desktop acceptance. Fresh-host fallback
   remains an explicit backend limitation in the mobile setup guide.
+- Product review reproduced three UI races: opening unloaded memory could submit
+  an empty replacement, a slow refresh could disable Stop, and a response from
+  before backgrounding could overwrite resumed state. Memory now waits for its
+  initial detail, Stop has independent request state, and refresh generations
+  invalidate older requests across concurrent refreshes and lifecycle changes.
+  The response-delay regressions above passed after these fixes.
 
 ## Remaining proof boundaries
 

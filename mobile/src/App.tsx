@@ -247,6 +247,7 @@ function Workspace({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [active, setActive] = useState(true);
+  const [stopping, setStopping] = useState<string[]>([]);
   const [editor, setEditor] = useState<keyof typeof editorLabels>();
   const [info, setInfo] = useState(false);
   const transcriptRef = useRef<HTMLElement>(null);
@@ -275,26 +276,29 @@ function Workspace({
     } else setError(errorText(e));
   }
   async function refresh() {
-    const version = generation.current;
+    if (!mounted.current || !foreground.current) return;
+    const version = ++generation.current;
     const selected = latestTarget.current;
-    const snapshot = snapshotSchema.parse(await api('/state'));
-    if (!mounted.current || !foreground.current || version !== generation.current) return;
-    setState(snapshot);
-    if (selected?.kind === 'bot') {
-      const next = botDetailSchema.parse(
-        await api(`/bots/${selected.id}?title=${encodeURIComponent(selected.title)}`),
-      );
-      if (mounted.current && foreground.current && version === generation.current) {
+    const current = () => mounted.current && foreground.current && version === generation.current;
+    try {
+      const snapshot = snapshotSchema.parse(await api('/state'));
+      if (!current()) return;
+      setState(snapshot);
+      if (selected?.kind === 'bot') {
+        const next = botDetailSchema.parse(
+          await api(`/bots/${selected.id}?title=${encodeURIComponent(selected.title)}`),
+        );
+        if (!current()) return;
         setDetail(next);
-        setError('');
-      }
-    } else if (selected?.kind === 'group') {
-      const next = groupSchema.parse(await api(`/groups/${selected.id}`));
-      if (mounted.current && foreground.current && version === generation.current) {
+      } else if (selected?.kind === 'group') {
+        const next = groupSchema.parse(await api(`/groups/${selected.id}`));
+        if (!current()) return;
         setGroupMessages(next);
-        setError('');
       }
-    } else setError('');
+      setError('');
+    } catch (e) {
+      if (current()) throw e;
+    }
   }
   backAction.current = () => {
     if (editor) setEditor(undefined);
@@ -304,15 +308,18 @@ function Workspace({
   };
   useEffect(() => {
     mounted.current = true;
+    function setForeground(value: boolean) {
+      if (foreground.current !== value) generation.current++;
+      foreground.current = value;
+      setActive(value);
+    }
     function visibility() {
-      foreground.current = document.visibilityState === 'visible';
-      setActive(foreground.current);
+      setForeground(document.visibilityState === 'visible');
     }
     document.addEventListener('visibilitychange', visibility);
     const listener = Capacitor.isNativePlatform()
       ? NativeApp.addListener('appStateChange', ({ isActive }) => {
-          foreground.current = isActive;
-          setActive(isActive);
+          setForeground(isActive);
         })
       : undefined;
     const back =
@@ -323,6 +330,7 @@ function Workspace({
         : undefined;
     return () => {
       mounted.current = false;
+      generation.current++;
       document.removeEventListener('visibilitychange', visibility);
       void listener?.then((h) => h.remove());
       void back?.then((h) => h.remove());
@@ -385,11 +393,24 @@ function Workspace({
     setError('');
     try {
       await work();
-      await refresh();
+    } catch (e) {
+      await fail(e);
+      return;
+    } finally {
+      setBusy(false);
+    }
+    await refresh().catch(fail);
+  }
+  async function stopBot(botId: string) {
+    if (stopping.includes(botId)) return;
+    setStopping((ids) => [...ids, botId]);
+    try {
+      await api(`/bots/${botId}/stop`, {});
+      void refresh().catch(fail);
     } catch (e) {
       await fail(e);
     } finally {
-      setBusy(false);
+      setStopping((ids) => ids.filter((id) => id !== botId));
     }
   }
   async function send(event: FormEvent) {
@@ -515,8 +536,10 @@ function Workspace({
               <button className="wide">Open conversation</button>
             </form>
             <h2>Memory</h2>
-            <p className="preserve">{detail?.memory || 'No saved memory yet.'}</p>
-            <button className="wide" onClick={() => setEditor('memory')}>
+            <p className="preserve">
+              {detail ? detail.memory || 'No saved memory yet.' : 'Loading memory…'}
+            </p>
+            <button className="wide" disabled={!detail} onClick={() => setEditor('memory')}>
               Edit memory
             </button>
             <h2>Model credentials</h2>
@@ -612,8 +635,8 @@ function Workspace({
                     {state.bots.find((b) => b.id === r.botId)?.name}: {r.activity || 'Working…'}
                   </span>
                   <button
-                    disabled={busy}
-                    onClick={() => void act(() => api(`/bots/${r.botId}/stop`, {}))}
+                    disabled={stopping.includes(r.botId)}
+                    onClick={() => void stopBot(r.botId)}
                   >
                     <Square size={13} /> Stop
                   </button>
@@ -951,6 +974,7 @@ function Editor({
   const [provider, setProvider] = useState(bot?.provider.kind || 'claude');
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (kind === 'memory' && !detail) return;
     const form = e.currentTarget;
     const data = new FormData(form);
     const get = (name: string) => String(data.get(name) || '');
@@ -1118,7 +1142,7 @@ function Editor({
           </p>
         </>
       )}
-      <button className="primary" disabled={busy}>
+      <button className="primary" disabled={busy || (kind === 'memory' && !detail)}>
         {busy
           ? 'Saving…'
           : kind === 'new'

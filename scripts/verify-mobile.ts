@@ -57,6 +57,49 @@ try {
   const desktop = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  type TransportResponse = { status: number; body: string };
+  let beforeResponse:
+    | ((
+        url: string,
+        method: string,
+        response: TransportResponse,
+      ) => { wait: Promise<void>; complete: () => void } | undefined)
+    | undefined;
+  function holdResponses(matches: (url: URL, method: string) => boolean) {
+    const pending: {
+      body: string;
+      release: () => void;
+      delivered: Promise<void>;
+    }[] = [];
+    beforeResponse = (url, method, response) => {
+      if (!matches(new URL(url), method)) return;
+      let release!: () => void;
+      let complete!: () => void;
+      const wait = new Promise<void>((resolve) => (release = resolve));
+      const delivered = new Promise<void>((resolve) => (complete = resolve));
+      pending.push({ body: response.body, release, delivered });
+      return { wait, complete };
+    };
+    async function releaseWhere(matchesBody: (body: string) => boolean) {
+      const selected = pending.filter((p) => matchesBody(p.body));
+      for (const p of selected) p.release();
+      await Promise.all(selected.map((p) => p.delivered));
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+    }
+    return {
+      pending,
+      releaseWhere,
+      async finish() {
+        beforeResponse = undefined;
+        await releaseWhere(() => true);
+      },
+    };
+  }
   // Browser-only stand-in for CapacitorHttp's native transport. TLS validates against our fixture CA.
   await page.route('https://localhost:14311/**', async (route) => {
     if (route.request().method() === 'OPTIONS') {
@@ -71,7 +114,7 @@ try {
       return;
     }
     const request = route.request();
-    const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const response = await new Promise<TransportResponse>((resolve, reject) => {
       const req = https.request(
         request.url(),
         {
@@ -93,12 +136,15 @@ try {
       req.on('error', reject);
       req.end(request.postData() || undefined);
     });
+    const held = beforeResponse?.(request.url(), request.method(), response);
+    await held?.wait;
     await route.fulfill({
       status: response.status,
       contentType: 'application/json',
       headers: { 'Access-Control-Allow-Origin': '*' },
       body: response.body,
     });
+    held?.complete();
   });
   await page.goto('http://127.0.0.1:14312');
   await desktop.goto('http://127.0.0.1:14310');
@@ -161,7 +207,31 @@ try {
   await expect(page.getByText('Which launch color should I use?', { exact: true })).toBeVisible({
     timeout: 60000,
   });
+  // Keep an old running snapshot in flight while steering and Stop execute.
+  const heldState = holdResponses((url) => url.pathname === '/api/state');
+  await page.getByRole('textbox', { name: 'Steer Bot', exact: true }).fill('Wait for my decision.');
+  await page.getByRole('button', { name: 'Send steering', exact: true }).click();
+  await expect.poll(() => heldState.pending.length).toBeGreaterThan(0);
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect.poll(async () => (await local('/api/state')).running.length).toBe(0);
+  // Resume must accept its new idle snapshot and ignore every older response.
+  async function visibility(value: 'hidden' | 'visible') {
+    await page.evaluate((value) => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }, value);
+  }
+  await visibility('hidden');
+  await expect(page.getByRole('textbox', { name: 'Steer Bot', exact: true })).toHaveCount(0);
+  const beforeResume = heldState.pending.length;
+  await visibility('visible');
+  await expect.poll(() => heldState.pending.length).toBeGreaterThan(beforeResume);
+  await heldState.releaseWhere((body) => JSON.parse(body).running.length === 0);
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
+  await heldState.finish();
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
   await expect(page.getByText('Which launch color should I use?', { exact: true })).toHaveCount(0, {
     timeout: 20000,
   });
@@ -170,6 +240,21 @@ try {
   await page.getByLabel('Bot memory').fill('Prefer primary sources.');
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByText('Prefer primary sources.', { exact: true })).toBeVisible();
+  // Reopen details with its initial memory response delayed; never offer a blank editor.
+  const heldDetail = holdResponses(
+    (url, method) => method === 'GET' && /^\/api\/bots\/[^/]+$/.test(url.pathname),
+  );
+  await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
+  await page.getByRole('button', { name: /Mobile researcher Find reliable/ }).click();
+  await page.getByRole('button', { name: 'Bot details', exact: true }).click();
+  await expect.poll(() => heldDetail.pending.length).toBeGreaterThan(0);
+  await expect(page.getByRole('button', { name: 'Edit memory', exact: true })).toBeDisabled();
+  await expect(page.getByText('Loading memory…', { exact: true })).toBeVisible();
+  await heldDetail.finish();
+  await expect(page.getByRole('button', { name: 'Edit memory', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Edit memory', exact: true }).click();
+  await expect(page.getByLabel('Bot memory')).toHaveValue('Prefer primary sources.');
+  await page.getByRole('button', { name: 'Close form', exact: true }).click();
   await page.getByRole('button', { name: 'Add routine', exact: true }).click();
   await dialog.getByLabel('Name', { exact: true }).fill('Mobile roundup');
   await dialog.getByLabel('Task', { exact: true }).fill('Review the launch brief.');
@@ -239,7 +324,7 @@ try {
   await desktop.getByRole('button', { name: 'Revoke Browser check', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Connect workspace', exact: true })).toBeVisible();
   process.stdout.write(
-    'Compiled mobile acceptance passed: pairing, roster/create, native question, steering, answer, approval denial, Stop, memory, routine pause, proactive routine question through Activity, group replies, revocation, no overflow/page errors. Native transport is a fixture stand-in in this browser lane.\n',
+    'Compiled mobile acceptance passed: pairing, roster/create, native question, steering, answer, approval denial, Stop during delayed refresh, resume response ordering, safe memory loading/editing, routine pause, proactive routine question through Activity, group replies, revocation, no overflow/page errors. Native transport is a fixture stand-in in this browser lane.\n',
   );
 } finally {
   await browser?.close();
