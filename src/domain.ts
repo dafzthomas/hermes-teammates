@@ -157,6 +157,24 @@ export const questionSchema = z.object({
 export const interactiveRequestSchema = z.discriminatedUnion('kind', [
   z.object({
     ...requestIdentity,
+    kind: z.literal('vault_login'),
+    origin: z.string(),
+    site: z.string(),
+  }),
+  z.object({
+    ...requestIdentity,
+    kind: z.literal('vault_unlock'),
+    backend: z.string(),
+    displayName: z.string(),
+  }),
+  z.object({
+    ...requestIdentity,
+    kind: z.literal('vault_code'),
+    site: z.string(),
+    hint: z.string(),
+  }),
+  z.object({
+    ...requestIdentity,
     kind: z.literal('action'),
     connectionName: z.string(),
     toolName: z.string(),
@@ -180,6 +198,17 @@ export const interactiveRequestSchema = z.discriminatedUnion('kind', [
 ]);
 export type InteractiveRequest = z.infer<typeof interactiveRequestSchema>;
 export const requestResponseSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('vault_login'),
+    login: z
+      .object({
+        identifier: z.string().trim().min(1).max(320),
+        password: z.string().min(1).max(16000),
+      })
+      .nullable(),
+  }),
+  z.object({ kind: z.literal('vault_unlock'), value: z.string().max(16000) }),
+  z.object({ kind: z.literal('vault_code'), value: z.string().max(2048) }),
   z.object({
     kind: z.literal('action'),
     result: z.discriminatedUnion('decision', [

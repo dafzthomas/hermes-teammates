@@ -6,9 +6,9 @@ An original, MIT-licensed desktop workspace for persistent Hermes agents, inspir
 
 _Actual compiled interface with controlled integration-test content._
 
-Each Bot has a role, model configuration, conversation history, memory, skills, workspace files and credential file. Bots can hand work to one another through Hermes' native `message_agent` tool. Groups bring multiple Bots into one visible conversation. Routines use Hermes' own cron store and scheduler. Each Bot can also have its own Linux computer with a live screen and manual takeover, plus MCP app connections with editable action reviews.
+Each Bot has a role, model configuration, conversation history, memory, skills, workspace files, API credentials and an encrypted website-login vault. Bots can hand work to one another through Hermes' native `message_agent` tool. Groups bring multiple Bots into one visible conversation. Routines use Hermes' own cron store and scheduler. Each Bot can also have its own Linux computer with a live screen and manual takeover, plus MCP app connections with editable action reviews.
 
-**First local release:** this is a working foundation, not full Grok Bot feature parity. See [the feature audit and alternatives](docs/research.md), [architecture and security boundaries](docs/architecture.md), and [verification](docs/verification.md).
+**First local release:** this is a working foundation, not full Grok Bot feature parity. See [the feature audit and alternatives](docs/research.md), [architecture and security boundaries](docs/architecture.md), and [verification](docs/verification.md), and the [local release audit](docs/delivery.md).
 
 ## Run
 
@@ -83,6 +83,33 @@ for compatible servers.
 
 ![Editable native app action review](docs/action-review.png)
 
+## Website logins
+
+Open **Overview → Credentials → Passwords & logins** to add or remove a login for
+one Bot. Enter the exact website, identifier and password, with an optional
+Authenticator setup key for automatic two-factor codes. Hermes stores passwords
+and setup keys in its native encrypted profile vault. Only labels, sites and
+identifiers return to the interface.
+
+When Hermes’ native browser tools need a new login, Chat shows a masked **Save
+website login** card. **Save & fill** stores it and fills the current password
+field; **Don’t save** declines. Native verification-code and password-manager
+unlock requests have their own masked cards. Reload restores a pending card;
+Stop withdraws it. Never enter these secrets in the chat composer.
+
+Installed 1Password and Bitwarden CLIs appear as login sources. Hermes detects
+signed-in managers; use the per-Bot switches to opt out, and **Lock managers**
+to forget session tokens. The native tool asks privately for unlock when needed.
+CLI installation and initial account sign-in are separate setup steps.
+
+These logins work with **Hermes’ native browser**, which needs its own configured
+browser runtime. They do not fill the separate Computer VM. The local vault file
+and adjacent encryption key both use mode 0600. This is not OS Keychain storage
+or protection from another process running as your OS user. API keys use separate
+plaintext Hermes credential files. See [Hermes passwords and logins](https://hermes-agent.nousresearch.com/docs/user-guide/features/credential-vault).
+
+![Private native login request](docs/private-login.png)
+
 ## Bot computers
 
 On Apple silicon with macOS 26 or later, install [Apple container](https://github.com/apple/container):
@@ -135,10 +162,10 @@ Managed Hermes installations share their installed dependencies through an `inst
 ## Security and current limits
 
 - Profiles separate data by default; they are **not OS security sandboxes**. Local tools run under your account and can access paths your account can access. Do not treat a Bot as isolated from another Bot's secrets against hostile instructions.
-- Credentials are stored in per-profile `.env` files with owner-only permissions, not an encrypted vault. The API returns credential names only. Known values are redacted from displayed transcripts, but transformed or previously unknown secrets cannot be guaranteed absent. Configure native Hermes external secret stores separately if needed.
+- API keys are stored in per-profile plaintext `.env` and native Hermes authentication files with owner-only permissions. Website passwords use the separate encrypted Hermes vault. The API returns credential names only. Known values are redacted from displayed transcripts, but transformed or previously unknown secrets cannot be guaranteed absent. Configure native Hermes external secret stores separately if needed.
 - Interactive chat uses Hermes manual approvals. Native gated actions display Allow/Deny cards; questions display choice or text forms, including multiple questions. Private credential/sudo prompts use a masked input. Unattended one-shot routines retain `deny` approval mode. Hermes does not gate every tool; these controls do not replace a sandbox.
 - The server binds to loopback and rejects foreign Host/Origin headers. It has no remote-user authentication. Do not expose it directly to the internet.
-- No managed browser-login UI, voice, mobile apps, editable Slack/email send-draft cards, webhooks, or account/team sharing is included. File uploads are text/source files up to 2 MB. Bot search filters the roster.
+- Voice, mobile apps, service-specific Slack/email draft composers, webhook triggers and account/team sharing are not included. File uploads are text/source files up to 2 MB. Bot search filters the roster.
 
 ## Develop
 

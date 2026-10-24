@@ -35,6 +35,9 @@ import { z } from 'zod';
 import { ComputerPanel } from './ComputerPanel';
 import { RequestCard } from './RequestCard';
 import { ConnectionFields } from './ConnectionFields';
+import { api } from './api';
+import { VaultPanel } from './VaultPanel';
+import type { Editor } from './editor';
 import {
   snapshotSchema,
   connectionInputSchema,
@@ -47,19 +50,6 @@ import {
   type Message,
 } from './domain';
 
-async function api(url: string, body?: unknown, method?: string) {
-  const response = await fetch(`/api${url}`, {
-    method: method || (body === undefined ? 'GET' : 'POST'),
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const data: unknown = await response.json();
-  if (!response.ok) {
-    const error = z.object({ error: z.string() }).safeParse(data);
-    throw new Error(error.success ? error.data.error : `Request failed (${response.status})`);
-  }
-  return data;
-}
 function UnreadBadge({ count = 0 }: { count?: number }) {
   return count > 0 ? (
     <span className="unread-badge" aria-label={`${count} unread replies`}>
@@ -106,12 +96,6 @@ function IconButton({
 }
 type Panel =
   'overview' | 'memory' | 'skills' | 'files' | 'secrets' | 'connections' | 'routines' | 'activity';
-type Editor = {
-  title: string;
-  body: ReactNode;
-  submit: (data: FormData) => Promise<void>;
-  button?: string;
-};
 const groupMessagesSchema = z.array(
   z.object({ id: z.string(), name: z.string(), text: z.string(), at: z.number() }),
 );
@@ -555,8 +539,9 @@ export function App() {
       body: (
         <>
           <p className="form-note">
-            Saved only to this Bot’s Hermes .env file with owner-only permissions. Values are never
-            returned to this interface. This is local file storage, not an encrypted vault.
+            Saved in this Bot’s plaintext Hermes credential files with owner-only permissions.
+            Values are never returned to this interface. This is local file storage, not an
+            encrypted vault.
           </p>
           <label>
             Name
@@ -1556,10 +1541,12 @@ export function App() {
                       <div className="storage-note">
                         <ShieldCheck size={18} />
                         <p>
-                          Stored in a local .env file with owner-only permissions. Configure Hermes’
-                          external secret stores for a vault-backed setup.
+                          API keys use this Bot’s plaintext .env and Hermes authentication storage,
+                          with owner-only permissions. Website logins below use the separate
+                          encrypted Hermes vault.
                         </p>
                       </div>
+                      <VaultPanel key={bot.id} botId={bot.id} botName={bot.name} edit={setEditor} />
                     </>
                   )}
                   {panel === 'connections' && (

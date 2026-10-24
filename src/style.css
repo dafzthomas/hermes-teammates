@@ -2006,3 +2006,83 @@ legend {
   line-height: 1.5;
   resize: vertical;
 }
+
+.vault-panel {
+  border-top: 1px solid #333;
+  padding-top: 24px;
+  margin-top: 28px;
+}
+.vault-panel h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.vault-empty {
+  color: #888;
+  font-size: 12px;
+  padding: 12px 0;
+}
+.vault-item,
+.vault-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #2c2c2c;
+  min-width: 0;
+}
+.vault-item > span,
+.vault-source > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.vault-item strong,
+.vault-source strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.vault-item small,
+.vault-source small {
+  display: block;
+  color: #888;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.vault-item > button {
+  background: transparent;
+  border: 0;
+  color: #999;
+  padding: 6px;
+}
+.vault-source input {
+  accent-color: #deded3;
+  width: 16px;
+  height: 16px;
+}
+.vault-sources-heading {
+  margin-top: 25px;
+}
+.vault-origin {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  background: #252525;
+  border-radius: 6px;
+  padding: 10px;
+}
+.vault-request label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.vault-request input {
+  background: #151515;
+  color: #eee;
+  border: 1px solid #444;
+  border-radius: 7px;
+  padding: 10px;
+  width: 100%;
+}

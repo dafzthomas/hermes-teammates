@@ -15,6 +15,7 @@ import { Store } from './store';
 import { Hermes } from './hermes';
 import { Computers } from './computers';
 import { Connections } from './connections';
+import { loginInputSchema, vaultSnapshotSchema } from '../src/vault';
 import type { Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 
@@ -206,6 +207,63 @@ export function createApp(dataRoot: string) {
       routineOutputs: store.outputs(id),
       activity: store.state.activity.filter((a) => a.botId === id).slice(-100),
     });
+  });
+  app.get('/api/bots/:id/vault', async (req, res) => {
+    const [items, sources] = await Promise.all([
+      hermes.vault(req.params.id, 'list'),
+      hermes.vault(req.params.id, 'sources'),
+    ]);
+    res.json(
+      vaultSnapshotSchema.parse({
+        ...z.object({ items: z.array(z.unknown()) }).parse(items),
+        ...z.object({ sources: z.array(z.unknown()) }).parse(sources),
+      }),
+    );
+  });
+  app.post('/api/bots/:id/vault/logins', async (req, res) => {
+    if (hermes.busy(req.params.id))
+      return res
+        .status(409)
+        .json({ error: 'Wait for this Bot to finish before changing saved logins.' });
+    const login = loginInputSchema.parse(req.body);
+    const result = await hermes.vault(req.params.id, 'add', {
+      kind: 'login',
+      label: login.label,
+      origin: login.origin,
+      secret: {
+        identifier: login.identifier,
+        identifier_type: login.identifierType,
+        password: login.password,
+        ...(login.otpSecret ? { otp_secret: login.otpSecret } : {}),
+      },
+    });
+    changed();
+    res.status(201).json(z.object({ id: z.string() }).parse(result));
+  });
+  app.delete('/api/bots/:id/vault/logins/:itemId', async (req, res) => {
+    if (hermes.busy(req.params.id))
+      return res
+        .status(409)
+        .json({ error: 'Wait for this Bot to finish before changing saved logins.' });
+    const result = await hermes.vault(req.params.id, 'remove', { id: req.params.itemId });
+    changed();
+    res.json(z.object({ removed: z.boolean() }).parse(result));
+  });
+  app.put('/api/bots/:id/vault/sources/:name', async (req, res) => {
+    if (hermes.busy(req.params.id))
+      return res
+        .status(409)
+        .json({ error: 'Wait for this Bot to finish before changing login sources.' });
+    const name = z.enum(['onepassword', 'bitwarden']).parse(req.params.name);
+    const body = z.object({ enabled: z.boolean() }).parse(req.body);
+    await hermes.vault(req.params.id, 'source.set', { name, ...body });
+    changed();
+    res.json({ ok: true });
+  });
+  app.post('/api/bots/:id/vault/lock', async (req, res) => {
+    await hermes.vault(req.params.id, 'lock');
+    changed();
+    res.json({ ok: true });
   });
   app.post('/api/bots/:id/connections', (req, res) => {
     if (hermes.busy(req.params.id))

@@ -337,6 +337,16 @@ export class Hermes {
     if (bridge.includes('app.asar/')) bridge = bridge.replace('app.asar/', 'app.asar.unpacked/');
     return bridge;
   }
+  async vault(
+    id: string,
+    method: 'list' | 'sources' | 'add' | 'remove' | 'source.set' | 'lock',
+    params: Record<string, unknown> = {},
+  ) {
+    if (!this.runtime.available) throw new Error(this.runtime.error || 'Hermes is unavailable.');
+    const bot = this.store.bot(id);
+    if (!this.gateways.has(id)) this.beforeRun?.(bot);
+    return this.gateway(bot).call(`vault.${method}`, params);
+  }
   gateway(bot: Bot) {
     const existing = this.gateways.get(bot.id);
     if (existing) return existing;
@@ -478,6 +488,27 @@ export class Hermes {
           description: this.store.redact(id, parsed.data.description),
           choices: parsed.data.choices,
         };
+    } else if (frame.method === 'vault.save_login') {
+      const parsed = z.object({ origin: z.string(), site: z.string() }).safeParse(frame.params);
+      if (parsed.success)
+        view = { ...base, kind: 'vault_login', origin: parsed.data.origin, site: parsed.data.site };
+    } else if (frame.method === 'vault.unlock_prompt') {
+      const parsed = z
+        .object({ backend: z.string(), display_name: z.string() })
+        .safeParse(frame.params);
+      if (parsed.success)
+        view = {
+          ...base,
+          kind: 'vault_unlock',
+          backend: parsed.data.backend,
+          displayName: parsed.data.display_name,
+        };
+    } else if (frame.method === 'vault.code') {
+      const parsed = z
+        .object({ site: z.string(), hint: z.string().default('') })
+        .safeParse(frame.params);
+      if (parsed.success)
+        view = { ...base, kind: 'vault_code', site: parsed.data.site, hint: parsed.data.hint };
     } else if (frame.method === 'secret' || frame.method === 'sudo') {
       const parsed = z
         .object({
@@ -542,6 +573,18 @@ export class Hermes {
       if (!view.choices.includes(response.choice))
         throw new Error('That approval scope is not available for this request.');
       result = { choice: response.choice };
+    } else if (view.kind === 'vault_login' && response.kind === 'vault_login') {
+      const login = response.login;
+      result = {
+        value: login
+          ? JSON.stringify({ identifier: login.identifier, password: login.password })
+          : '',
+      };
+    } else if (
+      (view.kind === 'vault_unlock' && response.kind === 'vault_unlock') ||
+      (view.kind === 'vault_code' && response.kind === 'vault_code')
+    ) {
+      result = { value: response.value };
     } else if (view.kind === 'secret' && response.kind === 'secret')
       result = { value: response.value };
     else throw new Error('Response does not match the pending request.');
@@ -552,7 +595,7 @@ export class Hermes {
       'run',
       response.kind === 'approval'
         ? `Approval decision: ${response.choice}`
-        : response.kind === 'secret'
+        : ['secret', 'vault_login', 'vault_unlock', 'vault_code'].includes(response.kind)
           ? 'Credential prompt answered'
           : 'Question answered',
     );

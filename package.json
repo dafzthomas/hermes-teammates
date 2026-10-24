@@ -19,7 +19,8 @@
     "format": "prettier --write src server scripts test electron *.json *.ts *.html README.md docs/*.md .github/workflows/*.yml",
     "format:check": "prettier --check src server scripts test electron *.json *.ts *.html README.md docs/*.md .github/workflows/*.yml",
     "verify:computer": "npm run build && tsx scripts/verify-computer.ts",
-    "verify:connections": "npm run build && tsx scripts/verify-connections.ts"
+    "verify:connections": "npm run build && tsx scripts/verify-connections.ts",
+    "verify:vault": "npm run build && tsx scripts/verify-vault.ts"
   },
   "main": "electron/main.cjs",
   "dependencies": {

@@ -2,12 +2,19 @@ import { useState, type FormEvent } from 'react';
 import { CircleHelp, KeyRound, ShieldCheck } from 'lucide-react';
 import type { InteractiveRequest, RequestResponse } from './domain';
 import { ActionReviewCard } from './ActionReviewCard';
+import { VaultRequestCard } from './VaultRequestCard';
 type Props = {
   request: InteractiveRequest;
   botName: string;
   respond: (response: RequestResponse) => Promise<void>;
 };
 export function RequestCard(props: Props) {
+  if (
+    props.request.kind === 'vault_login' ||
+    props.request.kind === 'vault_unlock' ||
+    props.request.kind === 'vault_code'
+  )
+    return <VaultRequestCard {...props} request={props.request} />;
   return props.request.kind === 'action' ? (
     <ActionReviewCard {...props} request={props.request} />
   ) : (
@@ -20,7 +27,10 @@ function NativeRequestCard({
   botName,
   respond,
 }: {
-  request: Exclude<InteractiveRequest, { kind: 'action' }>;
+  request: Exclude<
+    InteractiveRequest,
+    { kind: 'action' | 'vault_login' | 'vault_unlock' | 'vault_code' }
+  >;
   botName: string;
   respond: (response: RequestResponse) => Promise<void>;
 }) {

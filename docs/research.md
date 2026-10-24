@@ -19,7 +19,7 @@ One important difference in the reference product: Grok's Bots keep separate con
 | Memory             | Lasting preferences and role context                          | Native MEMORY.md and USER.md, editable and readable by Hermes                                                                              |
 | Skills             | Reusable workflows learned from work                          | Private per-profile SKILL.md files; editor plus native Hermes skill tools                                                                  |
 | Files              | Rich document/media inputs and generated results              | Text/source upload and download, private workspace, native file tools; no rich media viewer                                                |
-| Credentials        | App connections, login and secret handoff                     | Per-profile credential names/add/remove; native .env storage; optional shared Claude login                                                 |
+| Credentials        | App connections, login and secret handoff                     | Per-profile API keys; encrypted native website vault; private login, code and manager-unlock cards; optional shared Claude login           |
 | Model access       | Product-managed inference                                     | Per-Bot Claude/Anthropic or OpenAI-compatible endpoint, including Ollama                                                                   |
 | Tool activity      | Tools and result cards in the transcript                      | Native tool results and activity timeline; live screen in the Computer tab                                                                 |
 | Direct handoff     | Asynchronous Bot-to-Bot delivery and later replies            | Native Hermes message_agent in canonical Bot Chat; recipient owns its transcript                                                           |
@@ -65,7 +65,7 @@ Current Hermes documentation says Claude Max OAuth needs extra usage credits, an
 
 1. Add service-specific draft composers on the managed MCP review flow. Editable parameters, native routine outcomes, autonomous live turns, questions/approvals, steering and durable unread Bot/thread/group state are implemented.
 2. Extend the managed computer with explicit file transfer and browser-login controls. The VM isolates guest files; Hermes host tools remain outside it.
-3. Use an encrypted OS credential store or native external-vault references, including private login/secret handoff controls.
+3. Integrate an OS credential store for API keys across all native provider caches. Native encrypted website logins and private login/code/unlock handoffs are implemented.
 4. Add authenticated always-on backend operation, durable restart recovery and notifications. Add signed webhook triggers only with an explicit sender and trust boundary.
 5. Extend group ownership/routing, message replies, rich file artifacts, voice and cross-device/team access.
 
@@ -113,5 +113,21 @@ test caught both integration mismatches before acceptance passed.
 The editable card is a generic JSON editor, not a service-specific email/message
 composer. Reviewed calls in separate cron or delivery workers are blocked because
 those workers do not own a live conversation in this app. An explicitly unreviewed
-connection can run unattended. Native vault integrations already exist in Hermes;
-this app still stores credentials in its profile .env and has no vault picker.
+connection can run unattended. The website-login controls use Hermes’ native vault RPCs and private browser
+callbacks. API credentials remain in native plaintext credential storage.
+
+## Website-vault implementation findings
+
+Hermes exposes profile-scoped metadata, encrypted add/remove, external-manager
+source toggles and session locks through native `vault.*` RPCs. Its native browser
+asks the UI through `vault.save_login`, `vault.unlock_prompt` and `vault.code`.
+Teammates now handles these directly through each Bot’s private gateway. No
+password is copied into app metadata, activity or a model message. The native
+browser performs exact-origin checks and direct CDP fill; the separate VM is not
+connected to that browser session. [Hermes passwords and logins](https://hermes-agent.nousresearch.com/docs/user-guide/features/credential-vault)
+
+Provider API-key storage needs a broader change. Native Hermes can mirror keys
+from `.env` into authentication pools in `auth.json`, so wrapping `.env` with
+encryption alone would leave plaintext copies. This release labels that storage
+explicitly and makes no OS Keychain claim. The website vault’s adjacent 0600
+Fernet key also does not create a boundary against the same OS user.
