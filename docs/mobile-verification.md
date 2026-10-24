@@ -135,7 +135,7 @@ Failures were retained and diagnosed during verification:
   trigger in that name makes the test exercise the actual delivery contract.
 - A routine on a Bot that had not started an interactive gateway used Hermes'
   single-query fallback, which cannot wait for an answer. The final question flow
-  uses the already active Bot, matching desktop acceptance. Fresh-host fallback
+  sends a fresh task after Stop and uses that active Bot, matching desktop acceptance. Fresh-host fallback
   remains an explicit backend limitation in the mobile setup guide.
 
 ## Remaining proof boundaries

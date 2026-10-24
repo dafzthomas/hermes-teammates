@@ -10,6 +10,12 @@ import { createMobileGateway } from '../server/mobile';
 
 const root = path.resolve(process.env.TEAMMATES_MOBILE_FIXTURE_DIR || 'test-artifacts/mobile-host');
 fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+const markerFile = path.join(root, '.mobile-fixture');
+if (!fs.existsSync(markerFile) && fs.existsSync(path.join(root, 'data')))
+  throw new Error(
+    'Refusing an existing unmarked data directory. Choose a fresh fixture directory.',
+  );
+fs.writeFileSync(markerFile, 'Hermes Teammates disposable acceptance fixture\n', { mode: 0o600 });
 const key = path.join(root, 'key.pem');
 const cert = path.join(root, 'cert.pem');
 if (!fs.existsSync(cert))

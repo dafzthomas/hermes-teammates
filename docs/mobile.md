@@ -139,6 +139,7 @@ secret values are not restored.
 
 Native routine follow-up questions depend on an interactive Hermes gateway for
 that Bot. Sending a chat task starts that gateway for the current backend process.
+After an interruption, send a new chat task to re-establish the live session.
 On a freshly started host where a Bot has not chatted yet, Hermes can deliver a
 routine result through its unattended fallback, which cannot wait for an answer.
 This existing backend limitation applies to desktop and mobile. Routine execution
