@@ -125,8 +125,9 @@ export function createApp(dataRoot: string) {
     res.json({
       bots: store.state.bots,
       groups: store.state.groups,
+      inbox: store.inbox(),
       requests: [...hermes.requests.values()].map((request) => request.view),
-      running: [...hermes.running.entries()].map(([botId, turn]) => ({
+      running: hermes.activeTurns().map(([botId, turn]) => ({
         botId,
         text: store.redact(botId, turn.text),
         activity: turn.activity,
@@ -135,13 +136,27 @@ export function createApp(dataRoot: string) {
       runtime: hermes.runtime,
     }),
   );
+  app.post('/api/bots/:id/read', (req, res) => {
+    const body = z
+      .object({ title: z.string().min(1).max(100), messageId: z.string().min(1).max(250) })
+      .parse(req.body);
+    store.acknowledge(req.params.id, body.title, body.messageId);
+    changed();
+    res.json({ ok: true });
+  });
+  app.post('/api/groups/:id/read', (req, res) => {
+    const body = z.object({ messageId: z.string().min(1).max(250) }).parse(req.body);
+    store.acknowledgeGroup(req.params.id, body.messageId);
+    changed();
+    res.json({ ok: true });
+  });
   app.post('/api/bots', (req, res) => {
     const bot = store.createBot(botInputSchema.parse(req.body));
     changed();
     res.status(201).json(bot);
   });
   app.put('/api/bots/:id', (req, res) => {
-    if (hermes.running.has(req.params.id))
+    if (hermes.busy(req.params.id))
       return res.status(409).json({ error: 'Stop this Bot before changing its settings.' });
     res.json(store.updateBot(req.params.id, botInputSchema.parse(req.body)));
     hermes.reset(req.params.id);
@@ -181,7 +196,7 @@ export function createApp(dataRoot: string) {
   );
   app.post('/api/bots/:id/computer/enable', async (req, res) => {
     const bot = store.bot(req.params.id);
-    if (hermes.running.has(bot.id))
+    if (hermes.busy(bot.id))
       return res.status(409).json({ error: 'Stop this Bot before changing its computer.' });
     const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
     if (enabled && !hermes.python)
@@ -202,7 +217,7 @@ export function createApp(dataRoot: string) {
     res.status(202).json({ accepted: true });
   });
   app.post('/api/bots/:id/computer/sleep', async (req, res) => {
-    if (hermes.running.has(req.params.id))
+    if (hermes.busy(req.params.id))
       return res.status(409).json({ error: 'Stop the Bot before putting its computer to sleep.' });
     res.json(await computers.sleep(req.params.id));
   });
@@ -228,7 +243,7 @@ export function createApp(dataRoot: string) {
         title: z.string().trim().min(1).max(100).default('Bot Chat'),
       })
       .parse(req.body);
-    if (hermes.running.has(bot.id))
+    if (hermes.busy(bot.id))
       return res.status(409).json({
         error: 'This Bot is working. Stop its turn or wait before sending another message.',
       });
@@ -261,7 +276,7 @@ export function createApp(dataRoot: string) {
     const body = z
       .object({ kind: z.enum(['MEMORY', 'USER']), content: z.string().max(60000) })
       .parse(req.body);
-    if (hermes.running.has(req.params.id))
+    if (hermes.busy(req.params.id))
       return res.status(409).json({ error: 'Wait for this Bot to finish before editing memory.' });
     store.saveMemory(req.params.id, body.kind, body.content);
     hermes.reset(req.params.id);
@@ -269,7 +284,7 @@ export function createApp(dataRoot: string) {
     res.json({ ok: true });
   });
   app.put('/api/bots/:id/skills/:name', (req, res) => {
-    if (hermes.running.has(req.params.id))
+    if (hermes.busy(req.params.id))
       return res
         .status(409)
         .json({ error: 'Wait for this Bot to finish before editing its skills.' });
@@ -291,7 +306,7 @@ export function createApp(dataRoot: string) {
     res.type('text/plain').send(store.redact(req.params.id, fs.readFileSync(file, 'utf8')));
   });
   app.put('/api/bots/:id/secrets/:name', (req, res) => {
-    if (hermes.running.has(req.params.id))
+    if (hermes.busy(req.params.id))
       return res
         .status(409)
         .json({ error: 'Wait for this Bot to finish before changing its credentials.' });
@@ -302,7 +317,7 @@ export function createApp(dataRoot: string) {
     res.json({ ok: true });
   });
   app.delete('/api/bots/:id/secrets/:name', (req, res) => {
-    if (hermes.running.has(req.params.id))
+    if (hermes.busy(req.params.id))
       return res
         .status(409)
         .json({ error: 'Wait for this Bot to finish before changing its credentials.' });
@@ -349,7 +364,7 @@ export function createApp(dataRoot: string) {
     const group = store.state.groups.find((g) => g.id === req.params.id);
     if (!group) return res.status(404).json({ error: 'Group not found' });
     const { text } = z.object({ text: z.string().trim().min(1).max(30000) }).parse(req.body);
-    if (groupRuns.has(group.id) || group.members.some((id) => hermes.running.has(id)))
+    if (groupRuns.has(group.id) || group.members.some((id) => hermes.busy(id)))
       return res
         .status(409)
         .json({ error: 'A group member is working. Wait for the current turn.' });

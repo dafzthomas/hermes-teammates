@@ -313,7 +313,7 @@ legend {
   padding: 10px;
   border-radius: 10px;
 }
-.group-row > span:last-child {
+.group-row-copy {
   font-size: 13px;
   display: flex;
   flex-direction: column;
@@ -1923,4 +1923,40 @@ legend {
   .computer-caption {
     padding: 10px;
   }
+}
+
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: #e6e6e6;
+  color: #171717;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.group-row .unread-badge,
+.thread-link .unread-badge {
+  margin-left: auto;
+}
+.thread-link.selected {
+  color: #eee;
+}
+.routine-output {
+  padding: 0 12px 12px;
+  max-height: 250px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.routine-output > :first-child {
+  margin-top: 0;
+}
+.routine-output > :last-child {
+  margin-bottom: 0;
 }

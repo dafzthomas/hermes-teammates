@@ -8,7 +8,7 @@ Verified locally on 24 October 2026, on macOS Apple silicon. These checks establ
 | ---------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | TypeScript strict checking         | Passed                                  | Application, server, tests and acceptance script typecheck                                                   |
 | Production build                   | Passed                                  | Vite client and bundled Node backend compile                                                                 |
-| Store/API/native integration tests | 6 passed; VM test opts in separately    | Persistence, input boundaries, native agent execution and both inference protocols                           |
+| Store/API/native integration tests | 8 passed; VM test opts in separately    | Persistence, input boundaries, native agent execution and both inference protocols                           |
 | Compiled browser acceptance        | Passed at 1440×1050 and 390×844         | Actual UI interactions and responsive rendering                                                              |
 | Electron development shell         | Passed                                  | Native window loads the compiled backend and connects to Hermes                                              |
 | Unpacked macOS application         | Passed                                  | Packaged asar backend/static assets, native Hermes detection and routine bridge work                         |
@@ -29,7 +29,10 @@ Verified behavior:
 - Native `message_agent` dispatch reaches a specialist's transcript, with an attributed user message and a response from that specialist's own provider profile.
 - The recipient does not inherit the sender's saved memory.
 - Native cron jobs can be created, paused, resumed and removed.
-- A due scheduled job actually executes and writes a result readable by the app.
+- A due scheduled job executes, saves its native output, and delivers into canonical Bot Chat through Hermes' native owner.
+- An autonomous scheduled delivery asks a real question through the persistent gateway while a user-started question remains open in another thread. It accepts steering and an answer, then retires its own turn while preserving the other thread's request. A second autonomous turn is stopped while waiting, clearing its card without discarding the gateway.
+- Read cursors remain separate across Bots and threads, survive reopening and cannot acknowledge a message from another conversation. A late reply stays unread when the client acknowledges an older one. Group cursors never regress.
+- Hidden and cron execution sessions do not appear as private conversations; the latest reply remains readable after more than 2,000 transcript messages.
 - Hermes sends inference through OpenAI-compatible Chat Completions.
 - Hermes also sends inference through native Anthropic Messages after selecting Claude access.
 - One native gateway process and Bot Chat session are reused across successive turns.
@@ -49,7 +52,13 @@ After installing Playwright Chromium (`npx playwright install chromium`), run:
 npm run verify:ui
 ```
 
-The script starts the compiled backend and a controlled model endpoint. It interacts with the real rendered interface to create/edit a Bot, add a masked credential, save memory and a skill, upload a text file, create/pause/resume a native routine, send a real Hermes turn, reload history, restore a pending question after window reload, submit steering and an answer, deny an approval, stop a waiting question, open a separate thread, create a group and receive two profile responses. It checks narrow-screen navigation and absence of horizontal overflow, then launches the Electron shell and answers another real native question. Temporary data and owned servers are removed afterward. Screenshots are written to ignored `test-artifacts/`.
+The script starts the compiled backend and a controlled model endpoint. It interacts with the real rendered interface to create/edit a Bot, add a masked credential, save memory and a skill, upload a text file, create/pause/resume a native routine, send a real Hermes turn, reload history, restore a pending question after window reload, submit steering and an answer, deny an approval, stop a waiting question, open a separate thread, create a group and receive two profile responses. It also schedules an actual due Hermes job while another Bot is selected, opens its native question, answers, switches to Computer and verifies the completed reply stays unread. Reload preserves the badge; opening Chat clears it. Separate thread and two-member group replies receive independent badges, including group state after reload. It checks narrow-screen navigation and absence of horizontal overflow, then launches the Electron shell and answers another real native question. Temporary data and owned servers are removed afterward. Screenshots are written to ignored `test-artifacts/`.
+
+The expanded conversation check exposed a pending user-message bubble carried from
+an interrupted turn into a new empty thread. Conversation switching now clears
+that pending display. The new-thread acceptance remains in the compiled flow.
+The first expanded fixture also failed to detect a JSON-escaped cron header;
+its marker match was corrected before the native question test passed.
 
 The README screenshot shows this compiled interface with controlled fixture content, not a live-provider response or a separate mockup.
 

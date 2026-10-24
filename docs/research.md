@@ -10,31 +10,31 @@ One important difference in the reference product: Grok's Bots keep separate con
 
 ## Feature map
 
-| Surface            | Grok Bot behavior                                             | This release                                                                                                    |
-| ------------------ | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Bot identity       | Durable name, role, working context and boundaries            | Create/edit Bot role, color and model; original avatar artwork                                                  |
-| Desktop layout     | Bot roster, messaging transcript, contextual details          | Original dark three-column UI with collapsible details and narrow-screen navigation                             |
-| Persistent chat    | Ongoing relationship with each Bot                            | Hermes native Bot Chat stored in each profile's SQLite database                                                 |
-| Threads            | Replies and focused conversations                             | Separate named conversations using the same Bot resources; no nested message replies                            |
-| Memory             | Lasting preferences and role context                          | Native MEMORY.md and USER.md, editable and readable by Hermes                                                   |
-| Skills             | Reusable workflows learned from work                          | Private per-profile SKILL.md files; editor plus native Hermes skill tools                                       |
-| Files              | Rich document/media inputs and generated results              | Text/source upload and download, private workspace, native file tools; no rich media viewer                     |
-| Credentials        | App connections, login and secret handoff                     | Per-profile credential names/add/remove; native .env storage; optional shared Claude login                      |
-| Model access       | Product-managed inference                                     | Per-Bot Claude/Anthropic or OpenAI-compatible endpoint, including Ollama                                        |
-| Tool activity      | Tools and result cards in the transcript                      | Native tool results and activity timeline; live screen in the Computer tab                                      |
-| Direct handoff     | Asynchronous Bot-to-Bot delivery and later replies            | Native Hermes message_agent in canonical Bot Chat; recipient owns its transcript                                |
-| Group discussion   | Multiple Bots with visible ownership/handoffs                 | Shared transcript, sequential member turns, separate profile contexts; no @mention router                       |
-| Concurrent work    | Multiple Bots work at once                                    | Separate direct Bot runs can overlap; one app-owned turn per Bot                                                |
-| Redirect/stop      | New instructions can steer active work; Stop ends work        | Native Stop plus steering into the next tool result; persistent per-profile gateway                             |
-| Proactive routines | Time or supported event triggers                              | Native Hermes cron creation/pause/resume/delete; backend ticks every 30 seconds; saved run results              |
-| Always-on work     | Cloud work continues when laptop closes                       | Local by default; requires an awake backend host                                                                |
-| Computer and apps  | Persistent browser/desktop, tool connections, manual takeover | Per-Bot Apple VM with Chromium, persistent home, live screen and manual takeover; no app-connection manager     |
-| Approvals          | Review operation and inputs, allow/deny, editable send drafts | Native Allow/Deny cards, single/batch question forms and private credential/sudo input; no editable send drafts |
-| Voice              | Dictation, live voice and voice memos                         | Not implemented                                                                                                 |
-| Search             | Bots, prior messages, files, links, routines                  | Roster search with Cmd/Ctrl+K                                                                                   |
-| Notifications      | App and per-conversation notification controls                | In-app run state, errors and save notices; no OS push controls                                                  |
-| Sharing            | Team Bots, account scope, cross-device access                 | Single-user local workspace only                                                                                |
-| X entry point      | Start tasks by tagging @bot                                   | Not implemented                                                                                                 |
+| Surface            | Grok Bot behavior                                             | This release                                                                                                          |
+| ------------------ | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Bot identity       | Durable name, role, working context and boundaries            | Create/edit Bot role, color and model; original avatar artwork                                                        |
+| Desktop layout     | Bot roster, messaging transcript, contextual details          | Original dark three-column UI with collapsible details and narrow-screen navigation                                   |
+| Persistent chat    | Ongoing relationship with each Bot                            | Hermes native Bot Chat stored in each profile's SQLite database                                                       |
+| Threads            | Replies and focused conversations                             | Separate named conversations using the same Bot resources; no nested message replies                                  |
+| Memory             | Lasting preferences and role context                          | Native MEMORY.md and USER.md, editable and readable by Hermes                                                         |
+| Skills             | Reusable workflows learned from work                          | Private per-profile SKILL.md files; editor plus native Hermes skill tools                                             |
+| Files              | Rich document/media inputs and generated results              | Text/source upload and download, private workspace, native file tools; no rich media viewer                           |
+| Credentials        | App connections, login and secret handoff                     | Per-profile credential names/add/remove; native .env storage; optional shared Claude login                            |
+| Model access       | Product-managed inference                                     | Per-Bot Claude/Anthropic or OpenAI-compatible endpoint, including Ollama                                              |
+| Tool activity      | Tools and result cards in the transcript                      | Native tool results and activity timeline; live screen in the Computer tab                                            |
+| Direct handoff     | Asynchronous Bot-to-Bot delivery and later replies            | Native Hermes message_agent in canonical Bot Chat; recipient owns its transcript                                      |
+| Group discussion   | Multiple Bots with visible ownership/handoffs                 | Shared transcript, sequential member turns, separate profile contexts; no @mention router                             |
+| Concurrent work    | Multiple Bots work at once                                    | Separate Bots can overlap; native autonomous turns in another session are tracked alongside app-started work          |
+| Redirect/stop      | New instructions can steer active work; Stop ends work        | Native Stop plus steering into the next tool result; persistent per-profile gateway                                   |
+| Proactive routines | Time or supported event triggers                              | Native Hermes cron, 30-second ticks, Bot Chat delivery with live interactions, durable unread state and saved results |
+| Always-on work     | Cloud work continues when laptop closes                       | Local by default; requires an awake backend host                                                                      |
+| Computer and apps  | Persistent browser/desktop, tool connections, manual takeover | Per-Bot Apple VM with Chromium, persistent home, live screen and manual takeover; no app-connection manager           |
+| Approvals          | Review operation and inputs, allow/deny, editable send drafts | Native Allow/Deny cards, single/batch question forms and private credential/sudo input; no editable send drafts       |
+| Voice              | Dictation, live voice and voice memos                         | Not implemented                                                                                                       |
+| Search             | Bots, prior messages, files, links, routines                  | Roster search with Cmd/Ctrl+K                                                                                         |
+| Notifications      | App and per-conversation notification controls                | Durable unread Bot/thread/group badges, reply previews and live run state; no OS push controls                        |
+| Sharing            | Team Bots, account scope, cross-device access                 | Single-user local workspace only                                                                                      |
+| X entry point      | Start tasks by tagging @bot                                   | Not implemented                                                                                                       |
 
 Sources by surface: [Bot lifecycle](https://docs.x.ai/grok-bot/bots), [chat/collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration), [files/results](https://docs.x.ai/grok-bot/files-and-results), [skills/routines](https://docs.x.ai/grok-bot/skills-routines-and-automations), [approvals/privacy](https://docs.x.ai/grok-bot/approvals-security-and-privacy), [settings](https://docs.x.ai/grok-bot/settings-and-notifications), [overall execution model](https://docs.x.ai/grok-bot/overview).
 
@@ -63,7 +63,7 @@ Current Hermes documentation says Claude Max OAuth needs extra usage credits, an
 
 ## Next development priorities
 
-1. Surface routine outcomes in the conversation with unread/live-delivery state, then extend editable send-draft controls. Interactive approvals, questions, private input and mid-turn steering are implemented.
+1. Extend editable send-draft controls. Native routine outcomes, autonomous live turns, questions/approvals, steering and durable unread Bot/thread/group state are implemented.
 2. Extend the managed computer with explicit file transfer and browser-login controls. The VM isolates guest files; Hermes host tools remain outside it.
 3. Use an encrypted OS credential store or native external-vault references, including private login/secret handoff controls.
 4. Add authenticated always-on backend operation, durable restart recovery and notifications. Add signed webhook triggers only with an explicit sender and trust boundary.

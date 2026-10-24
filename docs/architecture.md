@@ -8,7 +8,7 @@ React renders the roster, transcript and details. The loopback Express server va
 React / Electron
         │ same-origin HTTP + server-sent change notifications
 Loopback server
-        ├── teammates.json: Bot roster, groups, activity, group display transcript
+        ├── teammates.json: Bot roster, groups, activity, group display transcript, read cursors
         ├── Apple container manager: per-Bot VM, named home volume, private screen proxy
         └── Hermes gateway: one persistent stdio process per active Bot profile
                  ├── profile configuration and credential file
@@ -45,17 +45,36 @@ The adapter resolves the installed Hermes Python environment and launches its na
 
 The client advertises native server-request support. Hermes sends `clarify`, `approval`, `secret` or `sudo` requests; the app keeps their IDs and validated public fields in memory and renders a matching card. Responses must belong to that Bot and match the request kind. Approval scopes must come from Hermes' offered choices. Native cancellation/timeout or Stop clears the card. Unsupported interaction types receive an explicit JSON-RPC error rather than a fabricated answer. Secret responses go directly to the private runtime channel and are not copied into app metadata or activity.
 
-`session.steer` queues instructions for the next tool result and reports rejection if the turn can no longer accept them. `session.interrupt` stops the current turn. The app waits for its terminal event before admitting a replacement turn, avoiding a late interrupted completion settling the new turn. A five-second interruption deadline closes an unresponsive gateway. A 15-minute app-owned turn timeout requests Stop. Shutdown terminates all owned gateway/scheduler children and waits for their exits; no completed side effects are undone.
+`session.steer` queues instructions for the next tool result and reports rejection if the turn can no longer accept them. `session.interrupt` stops the current turn. The app waits for its terminal event before admitting a replacement turn, avoiding a late interrupted completion settling the new turn. A five-second interruption deadline closes an unresponsive gateway. A 15-minute timeout requests Stop for both app-started and autonomous turns. Native `message.start` events adopt known conversation sessions, so routine delivery and incoming Bot work can stream, ask questions and request approval through the same interface. Autonomous sessions are tracked separately from a user-started turn in another conversation. Shutdown terminates all owned gateway/scheduler children and waits for their exits; no completed side effects are undone.
 
 The child environment passes a small OS-variable allowlist, sets the correct HERMES_HOME, and excludes ambient provider keys. Credentials are loaded by Hermes from that profile. `HERMES_DISABLE_LAZY_INSTALLS=1` prevents bot startup from initiating source-update dependency installation or launcher publication. Managed installations reuse existing dependencies; custom installations can override executable, source, Python, tool store and dependency paths.
 
-The Python bridge imports Hermes' installed cron library and exposes JSON-only create/list/pause/resume/remove operations. It keeps native cron jobs authoritative. The app invokes `hermes cron tick` every 30 seconds, with one tracked tick per profile; Hermes owns job locking and due-run behavior. Results are read from native cron outputs. This is not a hosted scheduler and does not promise work while the backend is stopped.
+The Python bridge imports Hermes' installed cron library and exposes JSON-only create/list/pause/resume/remove operations. It keeps native cron jobs authoritative. The app invokes `hermes cron tick` every 30 seconds, with one tracked tick per profile; Hermes owns job locking and due-run behavior. New jobs use Hermes native `deliver="bot-chat"`, including its durable delivery receipts, owner routing and offline fallback. The app does not enqueue a second copy or replay deliveries. Native routine context appears as an attributed card, and the Bot's follow-up reply stays in its canonical transcript. Original run results remain readable from native cron outputs. Existing jobs keep their native delivery target. This is not a hosted scheduler and does not promise work while the backend is stopped.
 
 ## Collaboration
 
 `profile.yaml` marks the app-owned profiles as Bot Mode participants. The permanent Bot Chat enables Hermes' native `message_agent` tool. Hermes maintains target validation, asynchronous delivery, sender attribution and recipient history. The app records outbound tool activity and reads the resulting native transcripts. A dispatch acknowledgement is not proof of delivery; the recipient transcript/result is the evidence.
 
 Group membership and a display transcript live in app metadata. On a user message, members run in order with a bounded recent group context and separate native group conversations. Private Bot Chat history is not added to the group context. The current design has no native group mention router, persistent group worker or cross-process group lock; only one backend should own a data directory.
+
+## Unread conversations
+
+The app reads native active assistant messages from visible, non-cron sessions.
+It joins compressed session titles back to their conversation and excludes group
+execution sessions from private-chat badges. App metadata stores only the last
+observed native message ID for each Bot/conversation and a separate group message
+cursor. The acknowledgement validates the ID against that Bot and conversation,
+and only advances. A reply arriving after the observed message therefore stays
+unread, including after restart. Earlier transcripts without a read cursor are
+unread until opened.
+
+The client acknowledges the latest loaded reply only while its Chat is visible
+and the window has focus. Computer views and other conversations do not clear it.
+Native completions trigger transcript refresh; a five-second poll also discovers
+writes made by Hermes workers outside this backend's gateway. History reads the
+latest 2,000 active messages, so older long conversations cannot hide a newly
+delivered reply. OS notifications and cross-device read synchronization are not
+implemented.
 
 ## Bot computers
 

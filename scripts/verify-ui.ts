@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
+import { snapshotSchema } from '../src/domain';
 
 const artifacts = path.resolve('test-artifacts');
 fs.mkdirSync(artifacts, { recursive: true });
@@ -28,8 +29,10 @@ const fixture = http.createServer(async (req, res) => {
     'UI_APPROVAL_PROOF',
     'UI_STOP_PROOF',
     'UI_DESKTOP_QUESTION_PROOF',
+    'UI_PROACTIVE_QUESTION_PROOF',
   ]) {
     if (!history.includes(marker) || interactiveIssued.has(marker)) continue;
+    if (marker === 'UI_PROACTIVE_QUESTION_PROOF' && !history.includes('[Cronjob ')) continue;
     const name = marker === 'UI_APPROVAL_PROOF' ? 'terminal' : 'clarify';
     if (!toolNames.includes(name)) continue;
     interactiveIssued.add(marker);
@@ -43,6 +46,8 @@ const fixture = http.createServer(async (req, res) => {
     };
     break;
   }
+  if (!tool && history.includes('[Cronjob ') && history.includes('UI_PROACTIVE_QUESTION_PROOF'))
+    await new Promise((resolve) => setTimeout(resolve, 1500));
   const content =
     'I reviewed the launch brief. The next step is to confirm the sources and prepare a concise draft for review.';
   res.setHeader('Content-Type', body.stream ? 'text/event-stream' : 'application/json');
@@ -100,6 +105,7 @@ await new Promise<void>((resolve, reject) => {
   });
   backend.on('error', reject);
 });
+const appUrl = `http://127.0.0.1:${address.port}`;
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
 const errors: string[] = [];
@@ -275,6 +281,90 @@ try {
     page.locator('.bubble').filter({ hasText: 'I reviewed the launch brief.' }),
   ).toHaveCount(2, { timeout: 60000 });
   await page.screenshot({ path: path.join(artifacts, 'group-desktop.png'), fullPage: true });
+  // A native scheduled turn asks a question while another conversation is open.
+  const snapshot = snapshotSchema.parse(
+    await (await page.request.get(`${appUrl}/api/state`)).json(),
+  );
+  const researcher = snapshot.bots.find((b) => b.name === 'Researcher');
+  if (!researcher) throw new Error('Researcher missing');
+  const roster = page.getByRole('navigation', { name: 'Bots' });
+  const researcherRow = roster.getByRole('button', { name: /^Researcher/ });
+  await researcherRow.click();
+  await expect
+    .poll(async () => {
+      const state = snapshotSchema.parse(
+        await (await page.request.get(`${appUrl}/api/state`)).json(),
+      );
+      return state.inbox.conversations
+        .filter((c) => c.botId === researcher.id)
+        .reduce((n, c) => n + c.unread, 0);
+    })
+    .toBe(0);
+  const scheduled = await page.request.post(`${appUrl}/api/bots/${researcher.id}/routines`, {
+    data: {
+      name: 'UI_PROACTIVE_QUESTION_PROOF',
+      prompt: 'Prepare the saved brief for review.',
+      schedule: new Date(Date.now() + 2000).toISOString(),
+    },
+  });
+  expect(scheduled.ok()).toBe(true);
+  await roster.getByRole('button', { name: /^Hermes/ }).click();
+  await expect
+    .poll(
+      async () => {
+        const state = snapshotSchema.parse(
+          await (await page.request.get(`${appUrl}/api/state`)).json(),
+        );
+        return state.requests.some((r) => r.botId === researcher.id && r.kind === 'clarify');
+      },
+      { timeout: 90000 },
+    )
+    .toBe(true);
+  await researcherRow.click();
+  const proactiveQuestion = page.getByRole('region', { name: 'Researcher question' });
+  await expect(proactiveQuestion).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.routine-delivery')).toContainText('UI_PROACTIVE_QUESTION_PROOF');
+  await proactiveQuestion.getByRole('radio', { name: /Green/ }).check();
+  await proactiveQuestion.getByRole('button', { name: 'Send answer', exact: true }).click();
+  await page.getByRole('button', { name: 'Computer', exact: true }).click();
+  await expect(researcherRow.locator('.unread-badge')).toHaveText('1', { timeout: 30000 });
+  await page.screenshot({ path: path.join(artifacts, 'proactive-unread.png'), fullPage: true });
+  // Reload selects Hermes. The unseen reply remains unread until Researcher's chat is shown.
+  await page.reload();
+  await expect(researcherRow.locator('.unread-badge')).toHaveText('1', { timeout: 15000 });
+  await researcherRow.click();
+  await expect(page.locator('.routine-delivery')).toBeVisible();
+  await expect(researcherRow.locator('.unread-badge')).toHaveCount(0, { timeout: 15000 });
+  await page.locator('.routine-delivery summary').click();
+  await expect(page.locator('.routine-output')).toBeVisible();
+  await page.screenshot({ path: path.join(artifacts, 'proactive-chat.png'), fullPage: true });
+  const threadRun = await page.request.post(`${appUrl}/api/bots/${researcher.id}/messages`, {
+    data: {
+      title: 'Source checklist',
+      text: 'Prepare the source checklist in this separate thread.',
+    },
+  });
+  expect(threadRun.status()).toBe(202);
+  const threadLink = page.locator('.thread-link').filter({ hasText: 'Source checklist' });
+  await expect(threadLink.locator('.unread-badge')).toHaveText('1', { timeout: 30000 });
+  await threadLink.click();
+  await expect(threadLink.locator('.unread-badge')).toHaveCount(0, { timeout: 15000 });
+  await page.getByRole('button', { name: 'Main conversation', exact: true }).click();
+  const launchGroup = snapshot.groups.find((g) => g.name === 'Launch team');
+  if (!launchGroup) throw new Error('Launch group missing');
+  const groupRun = await page.request.post(`${appUrl}/api/groups/${launchGroup.id}/messages`, {
+    data: {
+      text: 'Prepare another joint review while I read the private conversation.',
+    },
+  });
+  expect(groupRun.status()).toBe(202);
+  const groupRow = page.locator('.group-row').filter({ hasText: 'Launch team' });
+  await expect(groupRow.locator('.unread-badge')).toHaveText('2', { timeout: 60000 });
+  await page.reload();
+  await expect(groupRow.locator('.unread-badge')).toHaveText('2', { timeout: 15000 });
+  await groupRow.click();
+  await expect(groupRow.locator('.unread-badge')).toHaveCount(0, { timeout: 15000 });
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Close details', exact: true }).click();
   await expect(page.getByLabel('Message', { exact: true })).toBeVisible();
@@ -288,7 +378,7 @@ try {
   await page.screenshot({ path: path.join(artifacts, 'workspace-mobile.png'), fullPage: true });
   expect(errors).toEqual([]);
   console.log(
-    'Browser passed: bot resources, persistent native chat, question recovery after reload, live steering, approval denial, Stop clears cards, routines, threads, two-Bot group, mobile layout.',
+    'Browser passed: bot resources, persistent native chat, question recovery after reload, live steering, approval denial, Stop clears cards, routines, threads, two-Bot group, proactive native questions, unread preservation on Computer/reload, thread/group unread separation, read-on-view, mobile layout.',
   );
   await browser.close();
   await stopBackend();

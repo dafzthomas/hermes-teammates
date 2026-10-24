@@ -45,7 +45,9 @@ No real model credentials are included. The integration test uses a controlled l
 2. Add the relevant credentials, text files, memory or SKILL.md workflows in Bot details.
 3. Send a task. The transcript shows replies, tool results, question forms and approval cards; **Activity** shows tools, handoffs and outcomes. Answer a card to continue. While it works, send steering to the next tool result or press **Stop**. Ask a Bot to message a named teammate when a specialist should help.
 4. Create a group with at least two Bots for a shared discussion. Members answer sequentially using their own Hermes profiles.
-5. Create a routine for recurring work. Hermes accepts cron expressions, `every 2h`, or an ISO timestamp. Results appear in **Routines → Run results**.
+5. Create a routine for recurring work. Hermes accepts cron expressions, `every 2h`, or an ISO timestamp. New routines deliver their results into **Bot Chat**, with an attributed routine card and a reply from that Bot. The original output remains in **Routines → Run results**.
+
+Unread badges on Bots, conversations and groups survive reloads and backend restarts. Opening a focused Chat view marks only the messages it has loaded as read. Viewing the Computer tab does not clear conversation unread state. Existing native routines retain their configured delivery destination; recreate an older local-only routine to opt into Bot Chat delivery.
 
 Routines run while the backend is running. Closing the desktop app quits its backend. Sleeping the computer pauses local work. For an always-on service, run the backend on an awake machine; authenticated remote access and service installation are not included here.
 

@@ -25,7 +25,7 @@ def main():
         if action == "list":
             result = list_jobs(include_disabled=True)
         elif action == "create":
-            result = create_job(prompt=payload["prompt"], schedule=payload["schedule"], name=payload["name"], deliver="local", workdir=payload["workdir"])
+            result = create_job(prompt=payload["prompt"], schedule=payload["schedule"], name=payload["name"], deliver="bot-chat", workdir=payload["workdir"])
         elif action == "pause":
             result = pause_job(payload["id"])
         elif action == "resume":

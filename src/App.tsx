@@ -56,6 +56,13 @@ async function api(url: string, body?: unknown, method?: string) {
   }
   return data;
 }
+function UnreadBadge({ count = 0 }: { count?: number }) {
+  return count > 0 ? (
+    <span className="unread-badge" aria-label={`${count} unread replies`}>
+      {count > 99 ? '99+' : count}
+    </span>
+  ) : null;
+}
 function Face({ bot, large = false }: { bot: Pick<Bot, 'name' | 'color'>; large?: boolean }) {
   return (
     <span className={`face ${bot.color} ${large ? 'large' : ''}`} aria-hidden="true">
@@ -200,6 +207,8 @@ export function App() {
   const contextRef = useRef({ selected, title, groupId });
   contextRef.current = { selected, title, groupId };
   const generation = useRef(0);
+  const loadedContext = useRef('');
+  const readCursors = useRef(new Map<string, string>());
   const bot = state?.bots.find((b) => b.id === selected);
   const group = state?.groups.find((g) => g.id === groupId);
   const running = state?.running.find((r) => r.botId === selected && r.title === title);
@@ -229,12 +238,16 @@ export function App() {
     try {
       if (current.groupId) {
         const data = groupMessagesSchema.parse(await api(`/groups/${current.groupId}`));
-        if (gen === generation.current) setGroupMessages(data);
+        if (gen === generation.current) {
+          loadedContext.current = `group:${current.groupId}`;
+          setGroupMessages(data);
+        }
       } else {
         const data = botDetailSchema.parse(
           await api(`/bots/${current.selected}?title=${encodeURIComponent(current.title)}`),
         );
         if (gen === generation.current) {
+          loadedContext.current = `bot:${current.selected}:${current.title}`;
           setDetail(data);
           setPending((p) =>
             data.messages.some((m) => m.role === 'user' && m.content === p?.text) ? undefined : p,
@@ -272,11 +285,61 @@ export function App() {
   useEffect(() => {
     setDetail(emptyDetail);
     setGroupMessages([]);
+    setPending(undefined);
     setLoadingDetail(true);
     setError('');
     setDraft('');
     void refreshDetail();
   }, [selected, title, groupId, refreshDetail]);
+  const latestVisible = groupId
+    ? state?.inbox.groups.find((g) => g.groupId === groupId)?.latestId
+    : state?.inbox.conversations.find((c) => c.botId === selected && c.title === title)?.latestId;
+  useEffect(() => {
+    if (latestVisible) void refreshDetail();
+  }, [latestVisible, refreshDetail]);
+  useEffect(() => {
+    const acknowledge = () => {
+      if (
+        document.visibilityState !== 'visible' ||
+        !document.hasFocus() ||
+        loadingDetail ||
+        (!groupId && surface !== 'chat')
+      )
+        return;
+      const key = groupId ? `group:${groupId}` : `bot:${selected}:${title}`;
+      if (loadedContext.current !== key) return;
+      const messageId = groupId
+        ? groupMessages.at(-1)?.id
+        : detail.messages.findLast((m) => m.role === 'assistant' && m.content.trim())?.id;
+      if (!messageId || readCursors.current.get(key) === messageId) return;
+      readCursors.current.set(key, messageId);
+      void api(
+        groupId ? `/groups/${groupId}/read` : `/bots/${selected}/read`,
+        groupId ? { messageId } : { title, messageId },
+      )
+        .then(refreshState)
+        .catch(() => {
+          if (readCursors.current.get(key) === messageId) readCursors.current.delete(key);
+        });
+    };
+    acknowledge();
+    window.addEventListener('focus', acknowledge);
+    document.addEventListener('visibilitychange', acknowledge);
+    return () => {
+      window.removeEventListener('focus', acknowledge);
+      document.removeEventListener('visibilitychange', acknowledge);
+    };
+  }, [
+    state,
+    selected,
+    title,
+    groupId,
+    surface,
+    loadingDetail,
+    detail.messages,
+    groupMessages,
+    refreshState,
+  ]);
   const runningCount = state?.running.length || 0;
   const prevRunning = useRef(0);
   useEffect(() => {
@@ -543,7 +606,8 @@ export function App() {
           </label>
           <p className="form-note">
             A routine performs real work using this Bot’s tools and credentials. It runs while the
-            backend is running. A local backend sleeps with this computer.
+            backend is running and delivers results into Bot Chat. A local backend sleeps with this
+            computer.
           </p>
         </>
       ),
@@ -680,6 +744,9 @@ export function App() {
         <nav className="bot-list" aria-label="Bots">
           {visibleBots.map((b) => {
             const turn = state?.running.find((r) => r.botId === b.id);
+            const conversations = state?.inbox.conversations.filter((c) => c.botId === b.id) || [];
+            const unread = conversations.reduce((sum, c) => sum + c.unread, 0);
+            const latest = conversations.toSorted((a, b) => b.at - a.at)[0];
             return (
               <button
                 className={`bot-row ${b.id === selected && !group ? 'selected' : ''}`}
@@ -693,9 +760,10 @@ export function App() {
                     {b.pinned && <span className="primary-dot" title="Primary Bot" />}
                   </strong>
                   <span className={turn ? 'working-text' : ''}>
-                    {turn ? turn.activity : b.role.split('.')[0]}
+                    {turn ? turn.activity : latest?.preview || b.role.split('.')[0]}
                   </span>
                 </span>
+                <UnreadBadge count={unread} />
                 {turn && <span className="status-pulse" />}
               </button>
             );
@@ -720,10 +788,11 @@ export function App() {
             <span className="group-icon">
               <Users size={18} />
             </span>
-            <span>
+            <span className="group-row-copy">
               {g.name}
               <small>{g.members.length} Bots</small>
             </span>
+            <UnreadBadge count={state.inbox.groups.find((i) => i.groupId === g.id)?.unread} />
           </button>
         ))}
         {!state?.groups.length && (
@@ -1247,17 +1316,37 @@ export function App() {
                           </span>
                         </button>
                       )}
-                      {detail.sessions.some((s) => s.title !== 'Bot Chat') && (
+                      {detail.sessions.some(
+                        (s) =>
+                          s.title.replace(/ #\d+$/, '') !== 'Bot Chat' &&
+                          !state?.groups.some((g) => s.title.startsWith(`Group ${g.id}`)),
+                      ) && (
                         <>
                           <h3 className="section-title">Conversations</h3>
-                          {Array.from(new Set(detail.sessions.map((s) => s.title)))
-                            .filter((t) => t !== 'Bot Chat')
-                            .map((t) => (
-                              <button key={t} className="thread-link" onClick={() => setTitle(t)}>
-                                <MessageCircle size={14} />
-                                {t}
-                              </button>
-                            ))}
+                          {Array.from(
+                            new Set(detail.sessions.map((s) => s.title.replace(/ #\d+$/, ''))),
+                          )
+                            .filter((t) => !state?.groups.some((g) => t === `Group ${g.id}`))
+                            .map((t) => {
+                              const unread =
+                                state?.inbox.conversations.find(
+                                  (c) => c.botId === selected && c.title === t,
+                                )?.unread || 0;
+                              return (
+                                <button
+                                  key={t}
+                                  className={`thread-link ${t === title ? 'selected' : ''}`}
+                                  onClick={() => {
+                                    setTitle(t);
+                                    setSurface('chat');
+                                  }}
+                                >
+                                  <MessageCircle size={14} />
+                                  {t}
+                                  <UnreadBadge count={unread} />
+                                </button>
+                              );
+                            })}
                         </>
                       )}
                       <div className="profile-footer">
@@ -1650,6 +1739,20 @@ function GroupDetails({
 
 function TranscriptEntry({ message: m, botName }: { message: Message; botName: string }) {
   const handoff = /^Message from 🤖 (.+? \(@[^)]+\)):\s*([\s\S]*)$/.exec(m.content);
+  const routine = /^\[Cronjob "([^"\n]+)" output[^\n]*\]\s*([\s\S]*)$/.exec(m.content);
+  if (m.role === 'user' && routine)
+    return (
+      <details className="tool-card routine-delivery">
+        <summary>
+          <Clock3 size={13} />
+          Routine · {routine[1]}
+          <ChevronDown size={13} />
+        </summary>
+        <div className="routine-output">
+          <Markdown>{routine[2]}</Markdown>
+        </div>
+      </details>
+    );
   const completion = m.content.startsWith('[IMPORTANT: Background process');
   if (m.role === 'tool' || completion)
     return (

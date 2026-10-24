@@ -145,9 +145,32 @@ export const requestResponseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('secret'), value: z.string().max(16000) }),
 ]);
 export type RequestResponse = z.infer<typeof requestResponseSchema>;
+export const inboxSchema = z.object({
+  conversations: z.array(
+    z.object({
+      botId: z.string(),
+      title: z.string(),
+      unread: z.number().int().nonnegative(),
+      latestId: z.string(),
+      preview: z.string(),
+      at: z.number(),
+    }),
+  ),
+  groups: z.array(
+    z.object({
+      groupId: z.string(),
+      unread: z.number().int().nonnegative(),
+      latestId: z.string(),
+      preview: z.string(),
+      at: z.number(),
+    }),
+  ),
+});
+export type Inbox = z.infer<typeof inboxSchema>;
 export const snapshotSchema = z.object({
   bots: z.array(botSchema),
   groups: z.array(groupSchema),
+  inbox: inboxSchema.default({ conversations: [], groups: [] }),
   requests: z.array(interactiveRequestSchema).default([]),
   running: z.array(
     z.object({ botId: z.string(), text: z.string(), activity: z.string(), title: z.string() }),

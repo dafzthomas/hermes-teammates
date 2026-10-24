@@ -75,6 +75,15 @@ export function stopProcess(child: ChildProcess) {
   }
 }
 
+type Turn = {
+  text: string;
+  activity: string;
+  title: string;
+  sessionId?: string;
+  finish: (error?: Error, text?: string) => void;
+  completion: Promise<void>;
+};
+
 export class Hermes {
   executable =
     process.env.HERMES_EXECUTABLE ||
@@ -97,17 +106,69 @@ export class Hermes {
     error: 'Checking Hermes installation…',
     scheduler: false,
   };
-  running = new Map<
-    string,
-    {
-      text: string;
-      activity: string;
-      title: string;
-      sessionId?: string;
-      finish: (error?: Error, text?: string) => void;
-      completion: Promise<void>;
+  running = new Map<string, Turn>();
+  background = new Map<string, { botId: string; turn: Turn }>();
+  activeTurns(): [string, Turn][] {
+    return [
+      ...this.running.entries(),
+      ...[...this.background.values()].map(({ botId, turn }): [string, Turn] => [botId, turn]),
+    ];
+  }
+  busy(id: string) {
+    return this.activeTurns().some(([botId]) => botId === id);
+  }
+  turnFor(id: string, sessionId: string | undefined) {
+    return this.activeTurns().find(
+      ([botId, turn]) => botId === id && turn.sessionId === sessionId,
+    )?.[1];
+  }
+  adoptBackground(id: string, gateway: Gateway, sessionId: string) {
+    let title = [...gateway.sessions].find(([, sid]) => sid === sessionId)?.[0];
+    if (!title) {
+      const session = this.store.history(id).sessions.find((s) => s.id === sessionId);
+      const canonical = session?.title.replace(/ #\d+$/, '');
+      if (canonical && (canonical === 'Bot Chat' || gateway.sessions.has(canonical)))
+        title = canonical;
     }
-  >();
+    if (!title) return;
+    gateway.sessions.set(title, sessionId);
+    let completed: () => void = () => {};
+    const completion = new Promise<void>((resolve) => {
+      completed = resolve;
+    });
+    const timeout = setTimeout(
+      () => {
+        void this.stop(id);
+      },
+      15 * 60 * 1000,
+    );
+    let finished = false;
+    const turn: Turn = {
+      title,
+      sessionId,
+      text: '',
+      activity: 'Thinking',
+      completion,
+      finish: (error) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timeout);
+        this.background.delete(sessionId);
+        this.clearRequests(id, sessionId);
+        this.store.activity(
+          id,
+          error && error.name !== 'AbortError' ? 'error' : 'run',
+          error?.message || 'Proactive turn finished',
+        );
+        completed();
+        this.changed();
+      },
+    };
+    this.background.set(sessionId, { botId: id, turn });
+    this.store.activity(id, 'run', `Proactive turn started in ${title}`);
+    this.changed();
+    return turn;
+  }
   gateways = new Map<string, Gateway>();
   requests = new Map<
     string,
@@ -279,7 +340,8 @@ export class Hermes {
         if (this.gateways.get(bot.id) !== gateway) return;
         this.gateways.delete(bot.id);
         this.clearRequests(bot.id);
-        this.running.get(bot.id)?.finish(new Error(this.store.redact(bot.id, error.message)));
+        for (const [id, turn] of this.activeTurns())
+          if (id === bot.id) turn.finish(new Error(this.store.redact(bot.id, error.message)));
         this.changed();
       },
     });
@@ -298,7 +360,9 @@ export class Hermes {
       if (!parsed.success) return;
       const event = parsed.data;
       const payload = event.payload || {};
-      const turn = this.running.get(id);
+      let turn = this.turnFor(id, event.session_id);
+      if (!turn && event.type === 'message.start' && event.session_id)
+        turn = this.adoptBackground(id, gateway, event.session_id);
       if (event.type === 'request.cancel' && typeof payload.id === 'string') {
         this.requests.delete(payload.id);
         this.changed();
@@ -357,7 +421,7 @@ export class Hermes {
     }
     if (frame.id == null || !frame.method) return;
     const identity = z.object({ session_id: z.string() }).safeParse(frame.params);
-    const turn = this.running.get(id);
+    const turn = identity.success ? this.turnFor(id, identity.data.session_id) : undefined;
     if (!identity.success || !turn || identity.data.session_id !== turn.sessionId) {
       gateway.send({
         jsonrpc: '2.0',
@@ -478,13 +542,13 @@ export class Hermes {
           ? 'Credential prompt answered'
           : 'Question answered',
     );
-    const turn = this.running.get(id);
+    const turn = this.turnFor(id, request.sessionId);
     if (turn) turn.activity = 'Continuing';
     this.changed();
   }
   async run(bot: Bot, text: string, title = 'Bot Chat'): Promise<string> {
     if (!this.runtime.available) throw new Error(this.runtime.error || 'Hermes is unavailable.');
-    if (this.running.has(bot.id)) throw new Error('This Bot is already working.');
+    if (this.busy(bot.id)) throw new Error('This Bot is already working.');
     this.beforeRun?.(bot);
     const gateway = this.gateway(bot);
     return new Promise<string>((resolve, reject) => {
@@ -499,14 +563,7 @@ export class Hermes {
         },
         15 * 60 * 1000,
       );
-      const turn: {
-        text: string;
-        activity: string;
-        title: string;
-        sessionId?: string;
-        completion: Promise<void>;
-        finish: (error?: Error, answer?: string) => void;
-      } = {
+      const turn: Turn = {
         text: '',
         activity: 'Starting',
         title,
@@ -575,7 +632,9 @@ export class Hermes {
     });
   }
   async steer(id: string, title: string, text: string) {
-    const turn = this.running.get(id);
+    const turn = this.activeTurns().find(
+      ([botId, turn]) => botId === id && turn.title === title,
+    )?.[1];
     const gateway = this.gateways.get(id);
     if (!turn?.sessionId || turn.title !== title || !gateway)
       throw new Error('This conversation has no running turn to steer.');
@@ -591,33 +650,34 @@ export class Hermes {
     return result;
   }
   async stop(id: string) {
-    const turn = this.running.get(id);
+    const turns = this.activeTurns()
+      .filter(([botId]) => botId === id)
+      .map(([, turn]) => turn);
     const gateway = this.gateways.get(id);
-    if (!turn) return;
-    if (gateway && turn.sessionId) {
-      try {
-        const interrupt = gateway.call('session.interrupt', { session_id: turn.sessionId });
-        // Wait for the native terminal event before admitting another turn in this session.
-        const deadline = setTimeout(() => this.reset(id), 5000);
-        try {
-          await interrupt;
+    if (!turns.length) return;
+    const deadline = setTimeout(() => this.reset(id), 5000);
+    try {
+      if (!gateway || turns.some((turn) => !turn.sessionId)) return this.reset(id);
+      await Promise.all(
+        turns.map(async (turn) => {
+          await gateway.call('session.interrupt', { session_id: turn.sessionId });
           await turn.completion;
-        } finally {
-          clearTimeout(deadline);
-        }
-      } catch {
-        this.reset(id);
-      }
-    } else this.reset(id);
+        }),
+      );
+    } catch {
+      this.reset(id);
+    } finally {
+      clearTimeout(deadline);
+    }
   }
   reset(id: string) {
     const gateway = this.gateways.get(id);
     this.gateways.delete(id);
     this.clearRequests(id);
     if (gateway) stopProcess(gateway.child);
-    this.running
-      .get(id)
-      ?.finish(new Error('Hermes session disconnected. Send another message to reconnect.'));
+    for (const [botId, turn] of this.activeTurns())
+      if (botId === id)
+        turn.finish(new Error('Hermes session disconnected. Send another message to reconnect.'));
   }
   startScheduler() {
     const tick = () => {

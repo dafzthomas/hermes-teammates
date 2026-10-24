@@ -11,12 +11,19 @@ import {
   type Bot,
   type Activity,
   type Provider,
+  type Inbox,
 } from '../src/domain';
 
 const stateSchema = z.object({
   bots: z.array(botSchema),
   groups: z.array(groupSchema),
   activity: z.array(activitySchema),
+  readCursors: z
+    .array(
+      z.object({ botId: z.string(), title: z.string(), sequence: z.number().int().nonnegative() }),
+    )
+    .default([]),
+  groupReads: z.record(z.string(), z.string()).default({}),
   groupMessages: z
     .record(
       z.string(),
@@ -43,7 +50,7 @@ export class Store {
     fs.mkdirSync(this.root, { recursive: true, mode: 0o700 });
     this.state = fs.existsSync(this.statePath)
       ? stateSchema.parse(JSON.parse(fs.readFileSync(this.statePath, 'utf8')))
-      : { bots: [], groups: [], activity: [], groupMessages: {} };
+      : stateSchema.parse({ bots: [], groups: [], activity: [] });
     if (!this.state.bots.length) {
       this.createBot(
         {
@@ -257,7 +264,7 @@ export class Store {
         .parse(
           db
             .prepare(
-              'SELECT id, title, message_count AS count FROM sessions WHERE hidden = 0 ORDER BY started_at',
+              `SELECT id, title, message_count AS count FROM sessions WHERE hidden = 0 AND source != 'cron' ORDER BY started_at`,
             )
             .all(),
         )
@@ -265,7 +272,7 @@ export class Store {
       const rows = rowsSchema.parse(
         db
           .prepare(
-            'SELECT m.id, m.role, m.content, m.timestamp, m.session_id, m.tool_name FROM messages m JOIN sessions s ON m.session_id=s.id WHERE (s.title=? OR substr(s.title,1,length(?))=?) AND m.active=1 ORDER BY m.timestamp, m.id LIMIT 2000',
+            `SELECT * FROM (SELECT m.id, m.role, m.content, m.timestamp, m.session_id, m.tool_name FROM messages m JOIN sessions s ON m.session_id=s.id WHERE (s.title=? OR substr(s.title,1,length(?))=?) AND s.hidden=0 AND s.source != 'cron' AND m.active=1 ORDER BY m.timestamp DESC, m.id DESC LIMIT 2000) ORDER BY timestamp, id`,
           )
           .all(title, `${title} #`, `${title} #`),
       );
@@ -285,6 +292,126 @@ export class Store {
     } finally {
       db.close();
     }
+  }
+  acknowledge(id: string, title: string, messageId: string) {
+    const match = /^(.+):([0-9]+)$/.exec(messageId);
+    const sequence = Number(match?.[2]);
+    if (!match || !Number.isSafeInteger(sequence) || sequence <= 0)
+      throw new Error('Invalid message cursor.');
+    const file = path.join(this.home(id), 'state.db');
+    if (!fs.existsSync(file)) throw new Error('Conversation not found.');
+    const db = new DatabaseSync(file, { readOnly: true });
+    try {
+      const row = db
+        .prepare(
+          `SELECT m.id FROM messages m JOIN sessions s ON s.id=m.session_id
+        WHERE m.id=? AND m.session_id=? AND m.role='assistant' AND m.active=1
+        AND trim(COALESCE(m.content,'')) != '' AND s.hidden=0 AND s.source != 'cron'
+        AND (s.title=? OR substr(s.title,1,length(?))=?)`,
+        )
+        .get(sequence, match[1], title, `${title} #`, `${title} #`);
+      if (!row) throw new Error('Message is not a visible reply in this conversation.');
+    } finally {
+      db.close();
+    }
+    const cursor = this.state.readCursors.find((c) => c.botId === id && c.title === title);
+    if (sequence > (cursor?.sequence || 0)) {
+      if (cursor) cursor.sequence = sequence;
+      else this.state.readCursors.push({ botId: id, title, sequence });
+      this.save();
+    }
+  }
+  acknowledgeGroup(id: string, messageId: string) {
+    if (!this.state.groups.some((g) => g.id === id)) throw new Error('Group not found.');
+    const messages = this.state.groupMessages[id] || [];
+    const next = messages.findIndex((m) => m.id === messageId);
+    if (next < 0) throw new Error('Group message not found.');
+    const previous = messages.findIndex((m) => m.id === this.state.groupReads[id]);
+    if (next > previous) {
+      this.state.groupReads[id] = messageId;
+      this.save();
+    }
+  }
+  inbox(): Inbox {
+    const inbox: Inbox = { conversations: [], groups: [] };
+    for (const bot of this.state.bots) {
+      const file = path.join(this.home(bot.id), 'state.db');
+      if (!fs.existsSync(file)) continue;
+      const db = new DatabaseSync(file, { readOnly: true });
+      try {
+        const sessions = z
+          .array(z.object({ title: z.string() }))
+          .parse(
+            db
+              .prepare(
+                `SELECT DISTINCT title FROM sessions WHERE hidden=0 AND source != 'cron' AND title IS NOT NULL`,
+              )
+              .all(),
+          );
+        const titles = new Set(sessions.map((s) => s.title.replace(/ #\d+$/, '')));
+        for (const title of titles) {
+          if (this.state.groups.some((g) => title === `Group ${g.id}`)) continue;
+          const latest = z
+            .object({
+              id: z.number(),
+              session_id: z.string(),
+              content: z.string(),
+              timestamp: z.number(),
+            })
+            .optional()
+            .parse(
+              db
+                .prepare(
+                  `SELECT m.id,m.session_id,m.content,m.timestamp FROM messages m JOIN sessions s ON s.id=m.session_id
+              WHERE s.hidden=0 AND s.source != 'cron' AND m.active=1 AND m.role='assistant'
+              AND trim(COALESCE(m.content,'')) != '' AND (s.title=? OR substr(s.title,1,length(?))=?)
+              ORDER BY m.id DESC LIMIT 1`,
+                )
+                .get(title, `${title} #`, `${title} #`),
+            );
+          if (!latest) continue;
+          const { count } = z.object({ count: z.number() }).parse(
+            db
+              .prepare(
+                `SELECT COUNT(*) AS count FROM messages m JOIN sessions s ON s.id=m.session_id
+              WHERE s.hidden=0 AND s.source != 'cron' AND m.active=1 AND m.role='assistant'
+              AND trim(COALESCE(m.content,'')) != '' AND m.id>? AND (s.title=? OR substr(s.title,1,length(?))=?)`,
+              )
+              .get(
+                this.state.readCursors.find((c) => c.botId === bot.id && c.title === title)
+                  ?.sequence || 0,
+                title,
+                `${title} #`,
+                `${title} #`,
+              ),
+          );
+          inbox.conversations.push({
+            botId: bot.id,
+            title,
+            unread: count,
+            latestId: `${latest.session_id}:${latest.id}`,
+            preview: this.redact(bot.id, latest.content).replace(/\s+/g, ' ').slice(0, 160),
+            at: latest.timestamp * 1000,
+          });
+        }
+      } finally {
+        db.close();
+      }
+    }
+    for (const group of this.state.groups) {
+      const messages = this.state.groupMessages[group.id] || [];
+      const latest = messages.at(-1);
+      if (!latest) continue;
+      const previous = messages.findIndex((m) => m.id === this.state.groupReads[group.id]);
+      inbox.groups.push({
+        groupId: group.id,
+        unread: messages.slice(previous + 1).filter((m) => m.name !== 'You').length,
+        latestId: latest.id,
+        preview: latest.text.slice(0, 160),
+        at: latest.at,
+      });
+    }
+    return inbox;
   }
   outputs(id: string) {
     const root = path.join(this.home(id), 'cron', 'output');
