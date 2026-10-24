@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+.local-data/
+.env
+reference/
+test-artifacts/
+*.log
+.DS_Store
