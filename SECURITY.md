@@ -1,6 +1,6 @@
 # Security policy
 
-Hermes Teammates is an early, single-user local application. Security fixes target
+Hermes Teammates is an early, single-owner application with an optional paired mobile gateway. Security fixes target
 the current `main` branch. Older snapshots have no separate maintenance guarantee.
 
 ## Report a vulnerability privately
@@ -25,6 +25,9 @@ possible. There is no response-time commitment or bug-bounty program.
   OS user and can reach other files that user can access.
 - The HTTP backend binds to loopback. It has browser origin checks but no remote-user
   authentication. Do not publish its port directly to the internet.
+- Mobile devices authenticate through a separate HTTPS gateway using revocable,
+  expiring bearer credentials. A paired device controls the single-owner workspace.
+  Protect pairing codes and revoke lost devices on the host. Read [mobile trust](docs/mobile.md).
 - API keys use plaintext native Hermes credential files with owner-only permissions.
   Website passwords use a separate encrypted vault with an adjacent local key.
   Neither provides protection against a hostile process running as the same OS user.

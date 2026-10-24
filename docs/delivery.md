@@ -40,3 +40,11 @@ Run `npm run desktop` for the native window or `npm start` after `npm run build`
 for the loopback web app. Setup and model choices are in the [README](../README.md).
 Detailed checks, retained failures and account boundaries are in
 [verification](verification.md).
+
+## Mobile follow-up
+
+The iOS and Android clients and optional paired HTTPS gateway are delivered as
+source in this branch. See [mobile coverage/setup](mobile.md) and [mobile evidence](mobile-verification.md)
+for the phone feature map, native build/device proof and provider limits. Mobile
+access adds single-owner device credentials; it does not add account/team sharing,
+an always-on hosted runtime, push notifications or app-store publication.

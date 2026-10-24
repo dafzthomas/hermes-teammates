@@ -117,7 +117,7 @@ The first desktop launch inherited `ELECTRON_RUN_AS_NODE=1` from this agent envi
 
 ## Unverified or absent
 
-Live paid providers and OAuth reuse; rich/binary attachments; service-specific send-draft composers, native credential/sudo prompt execution with a real external service, vault login prompts; webhook triggers; voice; remote authentication and always-on service operation; crash recovery of active runs; multi-user/team access; whole-agent OS isolation; signed distribution and automatic updates. See [the feature audit](research.md) for the planned sequence.
+Live paid providers and OAuth reuse; rich/binary attachments; service-specific send-draft composers, native credential/sudo prompt execution with a real external service, vault login prompts; webhook triggers; voice; always-on service operation; crash recovery of active runs; multi-user/team access; whole-agent OS isolation; signed distribution and automatic updates. See [the feature audit](research.md) for the planned sequence.
 
 ## App connection acceptance
 
@@ -185,3 +185,9 @@ the per-Bot Computer VM remain separate. The vault key is stored beside the
 ciphertext; these checks do not prove OS Keychain or hostile same-user isolation.
 
 The compiled vault flow and actual private login fill also passed from the rebuilt macOS ARM Electron package. Fixture-owned native browser daemons are identified by their temporary working directory and stopped during cleanup.
+
+## Mobile follow-up
+
+Authenticated mobile access and the iOS/Android clients are documented and verified
+separately in [mobile verification](mobile-verification.md). The historical desktop
+results above do not substitute for device or remote-network acceptance.

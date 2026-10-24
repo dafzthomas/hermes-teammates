@@ -131,3 +131,11 @@ from `.env` into authentication pools in `auth.json`, so wrapping `.env` with
 encryption alone would leave plaintext copies. This release labels that storage
 explicitly and makes no OS Keychain claim. The website vault’s adjacent 0600
 Fernet key also does not create a boundary against the same OS user.
+
+## Mobile follow-up
+
+The phone client now uses Capacitor with the existing React schemas and approval
+components. This preserves native Hermes ownership of agent execution while
+allowing both iOS and Android builds. The separate authenticated HTTPS gateway
+avoids exposing the loopback desktop API. See [the mobile feature map](mobile.md)
+for current coverage; earlier release comparisons above remain historical.

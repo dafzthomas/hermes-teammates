@@ -35,3 +35,19 @@ The unmodified noVNC 1.7.0 core is bundled in the screen client under the Mozill
 Public License 2.0. Copyright belongs to the noVNC authors. Its source is available
 at https://github.com/novnc/noVNC/tree/v1.7.0 and through the pinned npm package
 `@novnc/novnc`. The license and notice are included in `licenses/`.
+
+## Mobile runtime
+
+The mobile clients use unmodified Capacitor and its App/Keyboard plugins under
+MIT, and `@aparajita/capacitor-secure-storage` under MIT. The latter uses
+KeychainSwift under MIT on iOS and Android platform cryptography. Native dependency
+licenses remain with those packages. Source and license text are available in the
+locked npm packages and at:
+
+- https://github.com/ionic-team/capacitor
+- https://github.com/ionic-team/capacitor-plugins
+- https://github.com/aparajita/capacitor-secure-storage
+- https://github.com/evgenyneu/keychain-swift
+
+The mobile avatar and launcher artwork are original project assets. The native
+project templates derive from Capacitor's MIT-licensed templates.

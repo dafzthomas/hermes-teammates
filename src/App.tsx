@@ -37,6 +37,7 @@ import { RequestCard } from './RequestCard';
 import { ConnectionFields } from './ConnectionFields';
 import { api } from './api';
 import { VaultPanel } from './VaultPanel';
+import { MobileDevices } from './MobileDevices';
 import type { Editor } from './editor';
 import {
   snapshotSchema,
@@ -835,6 +836,7 @@ export function App() {
           </button>
         )}
         <div className="sidebar-footer">
+          <MobileDevices />
           <div className="runtime-state">
             <span className={state?.runtime.available ? 'dot online' : 'dot'} />
             <span>{state?.runtime.available ? 'Hermes connected' : 'Connecting to Hermes'}</span>

@@ -15,6 +15,7 @@ import { Store } from './store';
 import { Hermes } from './hermes';
 import { Computers } from './computers';
 import { Connections } from './connections';
+import { MobileAccess, startMobileGateway } from './mobile';
 import { loginInputSchema, vaultSnapshotSchema } from '../src/vault';
 import type { Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -23,6 +24,7 @@ export function createApp(dataRoot: string) {
   const app = express();
   app.disable('x-powered-by');
   const store = new Store(dataRoot);
+  const mobile = new MobileAccess(dataRoot);
   const clients = new Set<Response>();
   const changed = () => {
     for (const client of clients) client.write('data: changed\n\n');
@@ -119,6 +121,24 @@ export function createApp(dataRoot: string) {
     next();
   });
   app.use(express.json({ limit: '3mb' }));
+  app.get('/api/mobile/devices', (_req, res) =>
+    res.json({
+      devices: mobile.list(),
+      enabled: Boolean(process.env.TEAMMATES_MOBILE_URL),
+      url: process.env.TEAMMATES_MOBILE_URL || null,
+    }),
+  );
+  app.post('/api/mobile/pairings', (_req, res) => {
+    if (!process.env.TEAMMATES_MOBILE_URL)
+      return res
+        .status(409)
+        .json({ error: 'Configure the mobile HTTPS gateway first. See docs/mobile.md.' });
+    res.json(mobile.createPairing());
+  });
+  app.delete('/api/mobile/devices/:id', (req, res) => {
+    mobile.revoke(req.params.id);
+    res.json({ ok: true });
+  });
   app.get('/api/events', (req, res) => {
     res.set({
       'Content-Type': 'text/event-stream',
@@ -543,6 +563,7 @@ export function createApp(dataRoot: string) {
     hermes,
     computers,
     connections,
+    mobile,
     attach,
     close: async () => {
       connections.close();
@@ -584,6 +605,12 @@ async function main() {
     else server.once('listening', resolve);
   });
   context.attach(server);
+  const mobileServer = startMobileGateway(context.mobile, `http://127.0.0.1:${port}`);
+  mobileServer?.on('error', () => {
+    console.error(
+      'Mobile HTTPS listener failed. Check its bind address, port and TLS configuration.',
+    );
+  });
   await context.hermes.probe();
   for (const bot of context.store.state.bots)
     if (bot.computerEnabled) context.computers.configure(bot, context.hermes.python || '');
@@ -591,6 +618,7 @@ async function main() {
   context.hermes.startScheduler();
   for (const signal of ['SIGINT', 'SIGTERM'])
     process.once(signal, () => {
+      mobileServer?.close();
       void context.close().finally(() => server.close(() => process.exit(0)));
       setTimeout(() => process.exit(0), 5000).unref();
     });

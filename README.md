@@ -3,7 +3,7 @@
 [![Checks](https://github.com/dafzthomas/hermes-teammates/actions/workflows/ci.yml/badge.svg)](https://github.com/dafzthomas/hermes-teammates/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An original, MIT-licensed desktop workspace for persistent Hermes agents, inspired by Grok Bot's dark, three-column interface. Hermes runs the agents; this app gives them a roster, conversations and a details panel.
+An original, MIT-licensed desktop and mobile workspace for persistent Hermes agents, inspired by Grok Bot's dark, three-column interface. Hermes runs the agents; this app gives them a roster, conversations and a details panel.
 
 ![Compiled Hermes Teammates workspace](docs/screenshot.png)
 
@@ -33,6 +33,10 @@ npm run desktop
 
 Development: `npm run dev`. Produce an unpacked desktop app with `npm run package:desktop`. Signed binaries and an installer release are not supplied. The browser app and Electron shell were tested on macOS Apple silicon; Linux and Windows installation remain unverified. The optional Bot computers require Apple silicon and macOS 26 or later.
 
+## iOS and Android
+
+The [mobile app](docs/mobile.md) connects to your own Hermes backend through an opt-in HTTPS gateway with one-use pairing, revocable device access and native secure storage. It supports Bot conversations, groups, activity and pending decisions, steering/Stop, Bot settings, memory and routines. Hermes continues to run on the host. Build the committed iOS and Android projects with `npm run mobile:sync`, then `npm run mobile:ios` or `npm run mobile:android`. See [coverage and setup](docs/mobile.md) and [verification](docs/mobile-verification.md).
+
 ## Model access
 
 Every Bot can choose its own provider in **Bot settings**.
@@ -54,7 +58,7 @@ No real model credentials are included. The integration test uses a controlled l
 
 Unread badges on Bots, conversations and groups survive reloads and backend restarts. Opening a focused Chat view marks only the messages it has loaded as read. Viewing the Computer tab does not clear conversation unread state. Existing native routines retain their configured delivery destination; recreate an older local-only routine to opt into Bot Chat delivery.
 
-Routines run while the backend is running. Closing the desktop app quits its backend. Sleeping the computer pauses local work. For an always-on service, run the backend on an awake machine; authenticated remote access and service installation are not included here.
+Routines run while the backend is running. Closing the desktop app quits its backend. Sleeping the computer pauses local work. For an always-on service, run the backend on an awake machine; the optional authenticated mobile gateway is documented in [mobile setup](docs/mobile.md). Service installation remains an operator task.
 
 ## Connected apps and action review
 
@@ -169,8 +173,8 @@ Managed Hermes installations share their installed dependencies through an `inst
 - Profiles separate data by default; they are **not OS security sandboxes**. Local tools run under your account and can access paths your account can access. Do not treat a Bot as isolated from another Bot's secrets against hostile instructions.
 - API keys are stored in per-profile plaintext `.env` and native Hermes authentication files with owner-only permissions. Website passwords use the separate encrypted Hermes vault. The API returns credential names only. Known values are redacted from displayed transcripts, but transformed or previously unknown secrets cannot be guaranteed absent. Configure native Hermes external secret stores separately if needed.
 - Interactive chat uses Hermes manual approvals. Native gated actions display Allow/Deny cards; questions display choice or text forms, including multiple questions. Private credential/sudo prompts use a masked input. Unattended one-shot routines retain `deny` approval mode. Hermes does not gate every tool; these controls do not replace a sandbox.
-- The server binds to loopback and rejects foreign Host/Origin headers. It has no remote-user authentication. Do not expose it directly to the internet.
-- Voice, mobile apps, service-specific Slack/email draft composers, webhook triggers and account/team sharing are not included. File uploads are text/source files up to 2 MB. Bot search filters the roster.
+- The desktop server binds to loopback and rejects foreign Host/Origin headers. Keep it private. Mobile access uses the separate opt-in authenticated HTTPS gateway; see [its trust and deployment boundaries](docs/mobile.md).
+- Voice, service-specific Slack/email draft composers, webhook triggers and account/team sharing are not included. File uploads are text/source files up to 2 MB. Bot search filters the roster.
 
 ## Develop
 

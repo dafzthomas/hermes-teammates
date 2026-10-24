@@ -165,3 +165,15 @@ must match both Bot ownership and request kind; native cancellation, Stop and
 timeout use the existing request lifecycle. Reload restores the pending request,
 not a previously typed secret. Native private fills target the Hermes browser,
 not the app’s separate VM. Payment/address vault management is not exposed.
+
+## Mobile client and authenticated gateway
+
+The Capacitor client in `mobile/` bundles its phone interface locally. Shared Zod
+schemas and request-card components preserve desktop validation and approval
+meaning. Native HTTP connects to a separate HTTPS gateway, using a revocable
+device token stored in platform secure storage. The gateway has an explicit API
+allowlist and forwards accepted requests to the unchanged loopback service.
+Hermes ownership, per-profile state, native approvals and VM boundaries remain
+on the host. Read [mobile setup and trust](mobile.md) for pairing, token lifetime,
+TLS configuration, device revocation and coverage. This is single-owner device
+access, not multi-user authorization or a new native agent runtime.
