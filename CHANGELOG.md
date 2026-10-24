@@ -7,6 +7,11 @@ A version in `package.json` does not imply a signed binary release or an npm pac
 
 ### Added
 
+- Installable Capacitor iOS/Android clients with phone navigation, Bot and group
+  conversations, Activity decisions, steering/Stop, settings, memory and routines.
+- Opt-in HTTPS mobile gateway with one-use pairing, expiring revocable devices,
+  native secure credential storage and an explicit remote API allowlist.
+
 - Persistent Hermes-backed Bots with separate role, model, memory, skills,
   workspace files, credentials, and conversations.
 - Claude through Hermes' Anthropic provider and configurable OpenAI-compatible
@@ -28,8 +33,8 @@ A version in `package.json` does not imply a signed binary release or an npm pac
 
 ### Current limits
 
-- Local work requires an awake backend. Remote authentication, webhook triggers,
-  voice, rich media, and team or cross-device access are not included.
+- Local work requires an awake backend. Webhook triggers, voice, rich media and multi-user/team access are not included.
+  Mobile device access is single-owner and requires the separate HTTPS gateway.
 - Bot computers require Apple silicon and macOS 26 or later. Other desktop
   platforms and signed distribution have not been verified.
 - API keys retain native plaintext storage. Host profile separation is not an OS

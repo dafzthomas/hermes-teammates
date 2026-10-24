@@ -11,3 +11,5 @@ test-artifacts/
 __pycache__/
 *.py[cod]
 .DS_Store
+# Local Android acceptance CA overlay, never part of release source.
+mobile/android/app/src/debug/

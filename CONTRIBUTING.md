@@ -42,6 +42,8 @@ The source is organized as follows:
 - `server/` contains the loopback API, native gateway adapters, app connections,
   and computer lifecycle code.
 - `electron/` contains the desktop shell.
+- `mobile/` contains the phone UI and committed Capacitor iOS/Android projects.
+- `server/mobile.ts` contains device pairing and the separate authenticated gateway.
 - `test/` contains automated checks and controlled integration fixtures.
 - `scripts/` contains desktop launch and compiled interface acceptance workflows.
 - `docs/` contains research, design boundaries, and verification evidence.
@@ -92,6 +94,10 @@ npm run verify:computer
 See [verification](docs/verification.md) for exact prerequisites, packaged-app
 checks, fixture boundaries, and retained failure evidence. Report what you ran and
 what you could not verify. A fixture does not prove a real third-party account.
+
+## Mobile changes
+
+Read [mobile setup](docs/mobile.md) and [mobile verification](docs/mobile-verification.md). Run `npm run build:mobile` and the gateway tests alongside the default checks. Use `npm run mobile:sync` after UI/plugin changes. Keep native generated web assets and build outputs out of Git. Exercise a native build on both iOS and Android when changing transport, secure storage, keyboard or lifecycle behavior. Separate browser transport fixtures from actual device proof. Do not commit pairing codes, device tokens, TLS keys, signing material or runtime transcripts.
 
 ## Open a pull request
 

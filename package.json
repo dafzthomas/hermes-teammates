@@ -16,14 +16,26 @@
     "desktop": "npm run build && node scripts/desktop.mjs",
     "package:desktop": "npm run build && electron-builder --dir",
     "verify:ui": "npm run build && tsx scripts/verify-ui.ts",
-    "format": "prettier --write src server scripts test electron .github *.json *.ts *.html *.md docs/*.md",
-    "format:check": "prettier --check src server scripts test electron .github *.json *.ts *.html *.md docs/*.md",
+    "format": "prettier --write src mobile/src mobile/*.ts mobile/*.html server scripts test electron .github *.json *.ts *.html *.md docs/*.md",
+    "format:check": "prettier --check src mobile/src mobile/*.ts mobile/*.html server scripts test electron .github *.json *.ts *.html *.md docs/*.md",
     "verify:computer": "npm run build && tsx scripts/verify-computer.ts",
     "verify:connections": "npm run build && tsx scripts/verify-connections.ts",
-    "verify:vault": "npm run build && tsx scripts/verify-vault.ts"
+    "verify:vault": "npm run build && tsx scripts/verify-vault.ts",
+    "build:mobile": "tsc --noEmit && vite build --config mobile/vite.config.ts",
+    "mobile:sync": "npm run build:mobile && cap sync",
+    "mobile:ios": "npm run mobile:sync && cap open ios",
+    "mobile:android": "npm run mobile:sync && cap open android",
+    "verify:mobile": "npm run build && npm run build:mobile && tsx scripts/verify-mobile.ts",
+    "mobile:fixture": "tsx scripts/mobile-fixture.ts"
   },
   "main": "electron/main.cjs",
   "dependencies": {
+    "@aparajita/capacitor-secure-storage": "^8.0.1",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
+    "@capacitor/keyboard": "^8.0.6",
     "@novnc/novnc": "^1.7.0",
     "express": "^5.1.0",
     "lucide-react": "^0.468.0",
@@ -35,6 +47,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.3",
     "@playwright/test": "^1.64.1",
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
