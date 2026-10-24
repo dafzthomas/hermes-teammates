@@ -144,7 +144,7 @@ export class Store {
     );
     this.atomic(
       path.join(home, 'SOUL.md'),
-      `${bot.role}\n\nWork in your own workspace. You have private memory and skills. Do not save secrets in memory or transcripts. Ask before consequential external actions. Suggest useful recurring routines rather than enabling unexpected work.\n`,
+      `${bot.role}\n\nWork in your own workspace. You have private memory and skills. Do not save secrets in memory or transcripts. Ask before consequential external actions. Suggest useful recurring routines rather than enabling unexpected work.\n${bot.computerEnabled ? '\nYou have a persistent Linux computer. Use tool_search for computer tools on the teammates-computer MCP server, then tool_describe and tool_call as needed. Prefer computer_shell, computer_screenshot and computer_action for browser and desktop tasks; these act inside your VM, while terminal and other host tools act on the Mac. Screen coordinates are 1280x800. Screenshot results use Hermes MEDIA:path image caching; inspect that path with vision_analyze before clicking, and report when a vision model is unavailable. The user can take control: wait for hand-back when computer tools report human_has_control. The VM home and browser logins persist across sleep, but its workspace is separate from your host workspace. Do not print credentials or claim all your tools are sandboxed.\n' : ''}`,
     );
     if (!fs.existsSync(path.join(home, '.env'))) this.atomic(path.join(home, '.env'), '');
   }

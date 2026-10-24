@@ -28,8 +28,41 @@ export const botSchema = botInputSchema.extend({
   id: z.string(),
   createdAt: z.string(),
   pinned: z.boolean().default(false),
+  computerEnabled: z.boolean().default(false),
 });
 export type Bot = z.infer<typeof botSchema>;
+const coordinate = { x: z.number().int().min(0).max(1279), y: z.number().int().min(0).max(799) };
+export const computerActionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('click'),
+    ...coordinate,
+    button: z.enum(['left', 'right']).default('left'),
+  }),
+  z.object({ type: z.literal('move'), ...coordinate }),
+  z.object({ type: z.literal('type'), text: z.string().max(20000) }),
+  z.object({
+    type: z.literal('key'),
+    key: z
+      .string()
+      .min(1)
+      .max(120)
+      .regex(/^[\w+ -]+$/),
+  }),
+  z.object({
+    type: z.literal('scroll'),
+    ...coordinate,
+    direction: z.enum(['up', 'down']),
+    amount: z.number().int().min(1).max(30).default(3),
+  }),
+]);
+export const computerStatusSchema = z.object({
+  state: z.enum(['off', 'starting', 'running', 'sleeping', 'error']),
+  control: z.enum(['bot', 'human']),
+  error: z.string().nullable(),
+  installed: z.boolean(),
+  enabled: z.boolean(),
+});
+export type ComputerStatus = z.infer<typeof computerStatusSchema>;
 export const groupSchema = z.object({
   id: z.string(),
   name: z.string(),

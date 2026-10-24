@@ -17,15 +17,18 @@
     "package:desktop": "npm run build && electron-builder --dir",
     "verify:ui": "npm run build && tsx scripts/verify-ui.ts",
     "format": "prettier --write src server scripts test electron *.json *.ts *.html README.md docs/*.md .github/workflows/*.yml",
-    "format:check": "prettier --check src server scripts test electron *.json *.ts *.html README.md docs/*.md .github/workflows/*.yml"
+    "format:check": "prettier --check src server scripts test electron *.json *.ts *.html README.md docs/*.md .github/workflows/*.yml",
+    "verify:computer": "npm run build && tsx scripts/verify-computer.ts"
   },
   "main": "electron/main.cjs",
   "dependencies": {
+    "@novnc/novnc": "^1.7.0",
     "express": "^5.1.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
+    "ws": "^8.22.0",
     "yaml": "^2.8.1",
     "zod": "^4.0.0"
   },
@@ -33,8 +36,10 @@
     "@playwright/test": "^1.64.1",
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
+    "@types/novnc__novnc": "^1.6.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^45.0.0",
     "electron-builder": "^26.0.0",
@@ -55,10 +60,16 @@
       "electron/**/*",
       "server/hermes_bridge.py",
       "package.json",
-      "LICENSE"
+      "LICENSE",
+      "server/computer/**/*",
+      "server/computer_mcp.py",
+      "THIRD_PARTY_NOTICES.md",
+      "licenses/**/*"
     ],
     "asarUnpack": [
-      "server/hermes_bridge.py"
+      "server/hermes_bridge.py",
+      "server/computer/**/*",
+      "server/computer_mcp.py"
     ],
     "mac": {
       "category": "public.app-category.productivity",

@@ -14,6 +14,7 @@ import {
   KeyRound,
   Menu,
   MessageCircle,
+  Monitor,
   MoreHorizontal,
   Plus,
   Search,
@@ -30,6 +31,7 @@ import {
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { z } from 'zod';
+import { ComputerPanel } from './ComputerPanel';
 import { RequestCard } from './RequestCard';
 import {
   snapshotSchema,
@@ -176,6 +178,7 @@ function ProviderFields({ bot }: { bot?: Bot }) {
 
 export function App() {
   const [state, setState] = useState<Snapshot>();
+  const [surface, setSurface] = useState<'chat' | 'computer'>('chat');
   const [selected, setSelected] = useState('default');
   const [groupId, setGroupId] = useState<string>();
   const [groupMessages, setGroupMessages] = useState<GroupMessage[]>([]);
@@ -283,6 +286,7 @@ export function App() {
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: 'smooth' });
   }, [
+    surface,
     detail.messages.length,
     groupMessages.length,
     running?.text.length,
@@ -812,6 +816,24 @@ export function App() {
             </span>
             <ChevronDown size={14} />
           </button>
+          {!group && bot && (
+            <div className="surface-tabs" aria-label="Bot surface">
+              <button
+                className={surface === 'chat' ? 'selected' : ''}
+                onClick={() => setSurface('chat')}
+              >
+                <MessageCircle size={15} />
+                Chat
+              </button>
+              <button
+                className={surface === 'computer' ? 'selected' : ''}
+                onClick={() => setSurface('computer')}
+              >
+                <Monitor size={15} />
+                Computer
+              </button>
+            </div>
+          )}
           <div className="chat-header-actions">
             {!group && (
               <>
@@ -875,207 +897,214 @@ export function App() {
             <span>{state?.runtime.error || 'Checking the Hermes runtime…'}</span>
           </div>
         )}
-        <div className="transcript" aria-live="polite" aria-label="Conversation">
-          {loadingDetail ? (
-            <div className="loading-state">Loading conversation…</div>
-          ) : (group ? groupMessages.length === 0 : detail.messages.length === 0) &&
-            !running &&
-            !pending ? (
-            <div className="welcome">
-              <div className="welcome-avatar">
-                {group ? <Users size={42} /> : bot && <Face bot={bot} large />}
-              </div>
-              <h1>{group ? 'Better together.' : `Meet ${bot?.name || 'your Bot'}.`}</h1>
-              <p>
-                {group
-                  ? 'Give the group a goal. Each Bot will bring its own knowledge and respond in turn.'
-                  : 'A teammate with a memory. Give it a job, teach it your way of working, and pick up where you left off.'}
-              </p>
-              <div className="welcome-prompts">
-                {(group
-                  ? [
-                      'Work together on a plan for this week.',
-                      'Compare your approaches to this project.',
-                    ]
-                  : [
-                      'Help me plan my week.',
-                      'What can you help me with?',
-                      'Help me define a specialist Bot.',
-                    ]
-                ).map((prompt) => (
-                  <button key={prompt} onClick={() => setDraft(prompt)}>
-                    {prompt}
-                    <ArrowUp size={14} />
-                  </button>
-                ))}
-              </div>
-              <span className="welcome-note">
-                <ShieldCheck size={13} />
-                Your conversations stay on this backend. Your model provider receives prompts.
-              </span>
-            </div>
-          ) : null}
-          {group
-            ? groupMessages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`message-row ${m.name === 'You' ? 'user' : 'assistant'}`}
-                >
-                  <div className="message-meta">
-                    {m.name}
-                    <time>
-                      {new Date(m.at).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </time>
+        {surface === 'computer' && bot && !group ? (
+          <ComputerPanel key={bot.id} bot={bot} />
+        ) : (
+          <>
+            <div className="transcript" aria-live="polite" aria-label="Conversation">
+              {loadingDetail ? (
+                <div className="loading-state">Loading conversation…</div>
+              ) : (group ? groupMessages.length === 0 : detail.messages.length === 0) &&
+                !running &&
+                !pending ? (
+                <div className="welcome">
+                  <div className="welcome-avatar">
+                    {group ? <Users size={42} /> : bot && <Face bot={bot} large />}
                   </div>
-                  <div className="bubble">
-                    <Markdown>{m.text}</Markdown>
+                  <h1>{group ? 'Better together.' : `Meet ${bot?.name || 'your Bot'}.`}</h1>
+                  <p>
+                    {group
+                      ? 'Give the group a goal. Each Bot will bring its own knowledge and respond in turn.'
+                      : 'A teammate with a memory. Give it a job, teach it your way of working, and pick up where you left off.'}
+                  </p>
+                  <div className="welcome-prompts">
+                    {(group
+                      ? [
+                          'Work together on a plan for this week.',
+                          'Compare your approaches to this project.',
+                        ]
+                      : [
+                          'Help me plan my week.',
+                          'What can you help me with?',
+                          'Help me define a specialist Bot.',
+                        ]
+                    ).map((prompt) => (
+                      <button key={prompt} onClick={() => setDraft(prompt)}>
+                        {prompt}
+                        <ArrowUp size={14} />
+                      </button>
+                    ))}
                   </div>
-                </div>
-              ))
-            : detail.messages.map((m) => (
-                <TranscriptEntry key={m.id} message={m} botName={bot?.name || 'Bot'} />
-              ))}
-          {pending &&
-            pending.target === (group?.id || selected) &&
-            !(group
-              ? groupMessages.some((m) => m.text === pending.text)
-              : detail.messages.some((m) => m.content === pending.text)) && (
-              <div className="message-row user">
-                <div className="message-meta">You</div>
-                <div className="bubble">
-                  <Markdown>{pending.text}</Markdown>
-                </div>
-              </div>
-            )}
-          {running && (
-            <div className="message-row assistant">
-              <div className="message-meta">
-                {bot?.name}
-                <span className="working-text">{running.activity}…</span>
-              </div>
-              <div className="bubble streaming">
-                {running.text ? (
-                  <Markdown>{running.text}</Markdown>
-                ) : (
-                  <span className="thinking-dots">
-                    <i />
-                    <i />
-                    <i />
+                  <span className="welcome-note">
+                    <ShieldCheck size={13} />
+                    Your conversations stay on this backend. Your model provider receives prompts.
                   </span>
-                )}
-              </div>
-            </div>
-          )}
-          {requests.map((request) => (
-            <RequestCard
-              key={request.id}
-              request={request}
-              botName={state?.bots.find((b) => b.id === request.botId)?.name || 'Bot'}
-              respond={async (response) => {
-                await api(
-                  `/bots/${request.botId}/requests/${encodeURIComponent(request.id)}`,
-                  response,
-                );
-                await refreshState();
-              }}
-            />
-          ))}
-          {latestError && !running && (
-            <div className="run-error">
-              <CircleHelp size={17} />
-              <div>
-                <strong>Something needs attention</strong>
-                <p>{latestError.text}</p>
-                <button onClick={() => botEditor(bot)}>Review Bot settings</button>
-              </div>
-            </div>
-          )}
-          <div ref={bottom} />
-        </div>
-        <div className="composer-area">
-          {error && !editor && (
-            <div className="error-notice" role="alert">
-              <span>{error}</span>
-              <IconButton label="Dismiss error" onClick={() => setError('')}>
-                <X size={14} />
-              </IconButton>
-            </div>
-          )}
-          {active && (
-            <div className="activity-line">
-              <span className="status-pulse" />
+                </div>
+              ) : null}
               {group
-                ? 'Your Bots are working'
-                : `${bot?.name} is ${running?.activity.toLowerCase()}`}
-              <button onClick={() => showPanel('activity')}>View activity</button>
-            </div>
-          )}
-          <form className="composer" onSubmit={send}>
-            <textarea
-              aria-label="Message"
-              placeholder={
-                running && !group
-                  ? `Steer ${bot?.name} while it works…`
-                  : `Message ${group?.name || bot?.name || 'Hermes'}…`
-              }
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              rows={2}
-            />
-            <div className="composer-tools">
-              <div>
-                <IconButton label="Add a text file" onClick={() => fileInput.current?.click()}>
-                  <Plus size={19} />
-                </IconButton>
-                <button className="model-label" type="button" onClick={() => botEditor(bot)}>
-                  {bot?.provider.model || 'Model'}
-                  <ChevronDown size={12} />
-                </button>
-              </div>
-              <div className="send-actions">
-                {active && (
-                  <button
-                    type="button"
-                    className="send-button stop"
-                    aria-label="Stop Bot"
-                    onClick={() => {
-                      if (group) for (const id of group.members) void api(`/bots/${id}/stop`, {});
-                      else void api(`/bots/${selected}/stop`, {});
-                    }}
-                  >
-                    <Square size={13} fill="currentColor" />
-                  </button>
+                ? groupMessages.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`message-row ${m.name === 'You' ? 'user' : 'assistant'}`}
+                    >
+                      <div className="message-meta">
+                        {m.name}
+                        <time>
+                          {new Date(m.at).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </time>
+                      </div>
+                      <div className="bubble">
+                        <Markdown>{m.text}</Markdown>
+                      </div>
+                    </div>
+                  ))
+                : detail.messages.map((m) => (
+                    <TranscriptEntry key={m.id} message={m} botName={bot?.name || 'Bot'} />
+                  ))}
+              {pending &&
+                pending.target === (group?.id || selected) &&
+                !(group
+                  ? groupMessages.some((m) => m.text === pending.text)
+                  : detail.messages.some((m) => m.content === pending.text)) && (
+                  <div className="message-row user">
+                    <div className="message-meta">You</div>
+                    <div className="bubble">
+                      <Markdown>{pending.text}</Markdown>
+                    </div>
+                  </div>
                 )}
-                {(!active || !group) && (
-                  <button
-                    className="send-button"
-                    aria-label={running ? 'Steer Bot' : 'Send message'}
-                    disabled={!draft.trim() || !state?.runtime.available}
-                  >
-                    <ArrowUp size={19} />
-                  </button>
-                )}
+              {running && (
+                <div className="message-row assistant">
+                  <div className="message-meta">
+                    {bot?.name}
+                    <span className="working-text">{running.activity}…</span>
+                  </div>
+                  <div className="bubble streaming">
+                    {running.text ? (
+                      <Markdown>{running.text}</Markdown>
+                    ) : (
+                      <span className="thinking-dots">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+              {requests.map((request) => (
+                <RequestCard
+                  key={request.id}
+                  request={request}
+                  botName={state?.bots.find((b) => b.id === request.botId)?.name || 'Bot'}
+                  respond={async (response) => {
+                    await api(
+                      `/bots/${request.botId}/requests/${encodeURIComponent(request.id)}`,
+                      response,
+                    );
+                    await refreshState();
+                  }}
+                />
+              ))}
+              {latestError && !running && (
+                <div className="run-error">
+                  <CircleHelp size={17} />
+                  <div>
+                    <strong>Something needs attention</strong>
+                    <p>{latestError.text}</p>
+                    <button onClick={() => botEditor(bot)}>Review Bot settings</button>
+                  </div>
+                </div>
+              )}
+              <div ref={bottom} />
+            </div>
+            <div className="composer-area">
+              {error && !editor && (
+                <div className="error-notice" role="alert">
+                  <span>{error}</span>
+                  <IconButton label="Dismiss error" onClick={() => setError('')}>
+                    <X size={14} />
+                  </IconButton>
+                </div>
+              )}
+              {active && (
+                <div className="activity-line">
+                  <span className="status-pulse" />
+                  {group
+                    ? 'Your Bots are working'
+                    : `${bot?.name} is ${running?.activity.toLowerCase()}`}
+                  <button onClick={() => showPanel('activity')}>View activity</button>
+                </div>
+              )}
+              <form className="composer" onSubmit={send}>
+                <textarea
+                  aria-label="Message"
+                  placeholder={
+                    running && !group
+                      ? `Steer ${bot?.name} while it works…`
+                      : `Message ${group?.name || bot?.name || 'Hermes'}…`
+                  }
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                  rows={2}
+                />
+                <div className="composer-tools">
+                  <div>
+                    <IconButton label="Add a text file" onClick={() => fileInput.current?.click()}>
+                      <Plus size={19} />
+                    </IconButton>
+                    <button className="model-label" type="button" onClick={() => botEditor(bot)}>
+                      {bot?.provider.model || 'Model'}
+                      <ChevronDown size={12} />
+                    </button>
+                  </div>
+                  <div className="send-actions">
+                    {active && (
+                      <button
+                        type="button"
+                        className="send-button stop"
+                        aria-label="Stop Bot"
+                        onClick={() => {
+                          if (group)
+                            for (const id of group.members) void api(`/bots/${id}/stop`, {});
+                          else void api(`/bots/${selected}/stop`, {});
+                        }}
+                      >
+                        <Square size={13} fill="currentColor" />
+                      </button>
+                    )}
+                    {(!active || !group) && (
+                      <button
+                        className="send-button"
+                        aria-label={running ? 'Steer Bot' : 'Send message'}
+                        disabled={!draft.trim() || !state?.runtime.available}
+                      >
+                        <ArrowUp size={19} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </form>
+              <div className="composer-caption">
+                <span>Powered by Hermes. Made to be yours.</span>
+                <span>
+                  {running && !group
+                    ? 'Steering arrives with the next tool result'
+                    : '↵ to send · Shift ↵ for a new line'}
+                </span>
               </div>
             </div>
-          </form>
-          <div className="composer-caption">
-            <span>Powered by Hermes. Made to be yours.</span>
-            <span>
-              {running && !group
-                ? 'Steering arrives with the next tool result'
-                : '↵ to send · Shift ↵ for a new line'}
-            </span>
-          </div>
-        </div>
+          </>
+        )}
       </main>
       {panelOpen && (
         <aside className="details-panel">

@@ -4,16 +4,18 @@ Verified locally on 24 October 2026, on macOS Apple silicon. These checks establ
 
 ## Results
 
-| Check                              | Result                                  | What it proves                                                                       |
-| ---------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------ |
-| TypeScript strict checking         | Passed                                  | Application, server, tests and acceptance script typecheck                           |
-| Production build                   | Passed                                  | Vite client and bundled Node backend compile                                         |
-| Store/API/native integration tests | 6 passed, no skips on this machine      | Persistence, input boundaries, native agent execution and both inference protocols   |
-| Compiled browser acceptance        | Passed at 1440×1050 and 390×844         | Actual UI interactions and responsive rendering                                      |
-| Electron development shell         | Passed                                  | Native window loads the compiled backend and connects to Hermes                      |
-| Unpacked macOS application         | Passed                                  | Packaged asar backend/static assets, native Hermes detection and routine bridge work |
-| Dependency audit                   | 0 known vulnerabilities at verification | npm's current advisory database for the locked dependency tree                       |
-| GitHub Actions                     | Workflow supplied; not run remotely     | CI definition only; no repository has been published                                 |
+| Check                              | Result                                  | What it proves                                                                                               |
+| ---------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| TypeScript strict checking         | Passed                                  | Application, server, tests and acceptance script typecheck                                                   |
+| Production build                   | Passed                                  | Vite client and bundled Node backend compile                                                                 |
+| Store/API/native integration tests | 6 passed; VM test opts in separately    | Persistence, input boundaries, native agent execution and both inference protocols                           |
+| Compiled browser acceptance        | Passed at 1440×1050 and 390×844         | Actual UI interactions and responsive rendering                                                              |
+| Electron development shell         | Passed                                  | Native window loads the compiled backend and connects to Hermes                                              |
+| Unpacked macOS application         | Passed                                  | Packaged asar backend/static assets, native Hermes detection and routine bridge work                         |
+| Apple VM/native MCP integration    | Passed with explicit opt-in             | Separate VM homes, no provider environment, persistence, takeover fence, actual native MCP tools and restart |
+| Computer browser and packaged UI   | Passed                                  | Live pixels, manual browser navigation, hand-back, sleep/wake, reload and narrow-screen layout               |
+| Dependency audit                   | 0 known vulnerabilities at verification | npm's current advisory database for the locked dependency tree                                               |
+| GitHub Actions                     | Workflow supplied; not run remotely     | CI definition only; no repository has been published                                                         |
 
 ## Native Hermes test
 
@@ -55,11 +57,45 @@ T3 collaborative preview was attempted first. Two snapshots on the opened app ta
 
 The packaged application was additionally launched directly from `release/mac-arm64/Hermes Teammates.app`, with a disposable data root. The acceptance script can select it through `TEAMMATES_PACKAGED_EXECUTABLE`; it stops the browser backend before starting Electron so two backends do not own the same data. A native window connects to Hermes, resumes a stored conversation, executes a real native question tool and accepts the answer. This package is unsigned and not notarized. Windows/Linux builds and installation on another machine were not tested.
 
+## Computer acceptance
+
+Install Apple container and start its system service before these explicit tests:
+
+```sh
+TEAMMATES_TEST_COMPUTERS=1 npx tsx --test test/computers.integration.test.ts
+npm run verify:computer
+```
+
+The VM integration uses actual Apple VMs, a local model fixture and the native
+Hermes MCP client. It verifies unprivileged commands, absence of provider-variable
+names in the guest, separate homes for two Bots, PNG capture, the manual-control
+fence, invalid capability rejection, file persistence across sleep and backend
+restart, native tool discovery, keyboard navigation to an actual local HTML page,
+and an MCP screenshot cached by Hermes as a valid PNG. Hermes returns MCP images
+through its `MEDIA:path` convention. Visual reasoning through `vision_analyze`
+requires a configured vision model and was not tested with a live provider.
+
+The compiled UI test connects through noVNC, takes control, types a file URL into
+the actual guest browser, checks its resulting window title inside the VM, hands
+back, sleeps/wakes the computer and reloads the app. It checks 390px layout and
+page errors. `TEAMMATES_PACKAGED_EXECUTABLE` selects the unpacked macOS executable;
+the same live-computer flow passed from its asar package. Tests delete only their
+own VMs, named volumes and disposable data roots.
+
+The first screen check found that TCP connect success did not establish a usable
+screen: localhost published ports accepted then reset HTTP/WebSocket traffic in
+this environment. The proxy now uses the VM’s private network. Readiness requires
+an actual visible Chromium window and an HTTP response from websockify, avoiding
+the initial black screenshot. Remote keyboard acceptance waits for the guest
+address bar to focus before typing; typing immediately after the shortcut caused
+intermittent lost initial characters in automation.
+
 ## Runtime compatibility and installation findings
 
 - Installed/tested Hermes: `v0.21.5+3904.g188a1a5`, upstream `188a1a5e`, Python 3.14.7.
 - Current upstream source inspected separately: `5894e750c3dba980d43b25aa29e3958149ba2c61`. Upstream research is not a claim that this installed version has every latest feature.
 - Reference unGrokBot inspected at `322711285429483a23ac5a00375ebcb677f8c98e`.
+- Apple container 1.6.0 on macOS 27.0; Debian trixie desktop, Xvfb, Chromium and noVNC 1.7.0.
 - Electron 45.0.0, Node.js 24.18.0 for development checks; the Electron backend uses Electron's bundled Node runtime.
 
 Starting a managed Hermes launcher under a completely fresh HERMES_HOME initially caused it to prepare another dependency environment and republish its shared launcher. The original installation's launcher was restored using Hermes' own launcher publisher. The adapter now disables lazy installs, shares the existing installed dependency generations, and resolves the installed venv interpreter. Using that interpreter also fixes a missing-module failure in native Bot-message delivery workers.
@@ -70,4 +106,4 @@ The first desktop launch inherited `ELECTRON_RUN_AS_NODE=1` from this agent envi
 
 ## Unverified or absent
 
-Live paid providers and OAuth reuse; rich/binary attachments; computer/browser-control panel; editable send-draft controls, native credential/sudo prompt execution with a real external service, vault login prompts; webhook triggers; voice; remote authentication and always-on service operation; crash recovery of active runs; multi-user/team access; OS-level isolation; signed distribution and automatic updates. See [the feature audit](research.md) for the planned sequence.
+Live paid providers and OAuth reuse; rich/binary attachments; editable send-draft controls, native credential/sudo prompt execution with a real external service, vault login prompts; webhook triggers; voice; remote authentication and always-on service operation; crash recovery of active runs; multi-user/team access; whole-agent OS isolation; signed distribution and automatic updates. See [the feature audit](research.md) for the planned sequence.

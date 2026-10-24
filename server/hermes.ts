@@ -115,6 +115,7 @@ export class Hermes {
   >();
   ticking = new Map<string, ChildProcess>();
   timer?: ReturnType<typeof setInterval>;
+  beforeRun?: (bot: Bot) => void;
   constructor(
     readonly store: Store,
     readonly changed: () => void,
@@ -484,6 +485,7 @@ export class Hermes {
   async run(bot: Bot, text: string, title = 'Bot Chat'): Promise<string> {
     if (!this.runtime.available) throw new Error(this.runtime.error || 'Hermes is unavailable.');
     if (this.running.has(bot.id)) throw new Error('This Bot is already working.');
+    this.beforeRun?.(bot);
     const gateway = this.gateway(bot);
     return new Promise<string>((resolve, reject) => {
       let finished = false;

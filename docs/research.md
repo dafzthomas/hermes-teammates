@@ -21,14 +21,14 @@ One important difference in the reference product: Grok's Bots keep separate con
 | Files              | Rich document/media inputs and generated results              | Text/source upload and download, private workspace, native file tools; no rich media viewer                     |
 | Credentials        | App connections, login and secret handoff                     | Per-profile credential names/add/remove; native .env storage; optional shared Claude login                      |
 | Model access       | Product-managed inference                                     | Per-Bot Claude/Anthropic or OpenAI-compatible endpoint, including Ollama                                        |
-| Tool activity      | Tools and result cards in the transcript                      | Native tool results plus activity timeline; no live computer feed                                               |
+| Tool activity      | Tools and result cards in the transcript                      | Native tool results and activity timeline; live screen in the Computer tab                                      |
 | Direct handoff     | Asynchronous Bot-to-Bot delivery and later replies            | Native Hermes message_agent in canonical Bot Chat; recipient owns its transcript                                |
 | Group discussion   | Multiple Bots with visible ownership/handoffs                 | Shared transcript, sequential member turns, separate profile contexts; no @mention router                       |
 | Concurrent work    | Multiple Bots work at once                                    | Separate direct Bot runs can overlap; one app-owned turn per Bot                                                |
 | Redirect/stop      | New instructions can steer active work; Stop ends work        | Native Stop plus steering into the next tool result; persistent per-profile gateway                             |
 | Proactive routines | Time or supported event triggers                              | Native Hermes cron creation/pause/resume/delete; backend ticks every 30 seconds; saved run results              |
 | Always-on work     | Cloud work continues when laptop closes                       | Local by default; requires an awake backend host                                                                |
-| Computer and apps  | Persistent browser/desktop, tool connections, manual takeover | Hermes tools available through installed runtime; no managed computer or app-connection UI                      |
+| Computer and apps  | Persistent browser/desktop, tool connections, manual takeover | Per-Bot Apple VM with Chromium, persistent home, live screen and manual takeover; no app-connection manager     |
 | Approvals          | Review operation and inputs, allow/deny, editable send drafts | Native Allow/Deny cards, single/batch question forms and private credential/sudo input; no editable send drafts |
 | Voice              | Dictation, live voice and voice memos                         | Not implemented                                                                                                 |
 | Search             | Bots, prior messages, files, links, routines                  | Roster search with Cmd/Ctrl+K                                                                                   |
@@ -63,10 +63,33 @@ Current Hermes documentation says Claude Max OAuth needs extra usage credits, an
 
 ## Next development priorities
 
-1. Extend the persistent native Hermes gateway with unread/live-delivery state and editable send-draft controls. Interactive approvals, questions, private input and mid-turn steering are implemented.
-2. Add a managed per-Bot container/browser backend and computer panel. Make actual OS isolation explicit before presenting private credentials as a security boundary.
+1. Surface routine outcomes in the conversation with unread/live-delivery state, then extend editable send-draft controls. Interactive approvals, questions, private input and mid-turn steering are implemented.
+2. Extend the managed computer with explicit file transfer and browser-login controls. The VM isolates guest files; Hermes host tools remain outside it.
 3. Use an encrypted OS credential store or native external-vault references, including private login/secret handoff controls.
 4. Add authenticated always-on backend operation, durable restart recovery and notifications. Add signed webhook triggers only with an explicit sender and trust boundary.
 5. Extend group ownership/routing, message replies, rich file artifacts, voice and cross-device/team access.
 
 The first release deliberately stores memory, skills, transcripts and routines in native Hermes formats so those improvements do not require a second memory or scheduler system.
+
+## Computer implementation findings
+
+The supplied unGrokBot implementation keeps inference on the Mac and gives each
+Bot an Apple container desktop. This app follows that arrangement with an
+MIT-derived Debian/Xvfb/Openbox/Chromium image, a noVNC screen client, and
+profile-bound MCP tools. The native Hermes process owns the model and MCP
+connection; the app owns VM lifecycle and takeover state. Its tool service refuses
+new computer actions while the user has control.
+
+The installed Hermes version’s screen runtime is Linux-only. Newer Hermes
+[Bot Screen documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/bot-screen)
+describes additional placement options; those docs do not establish support in
+our installed release. A small MCP adapter avoids replacing Hermes inference or
+requiring its host desktop tool to control the user’s Mac.
+
+[Apple container](https://github.com/apple/container) supplies the VM runtime.
+The screen proxy uses the VM’s private network address; localhost port publishing
+accepted connections but reset HTTP/WebSocket traffic on this macOS 27 check.
+The UI talks only to the loopback backend. The guest’s VNC endpoint requires its
+own random screen password. MCP v2 renamed FastMCP to MCPServer, so the adapter
+supports the installed v2 interface with a v1 import fallback, following the
+[official Python SDK](https://github.com/modelcontextprotocol/python-sdk).

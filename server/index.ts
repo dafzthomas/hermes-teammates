@@ -8,6 +8,9 @@ import { z } from 'zod';
 import { botInputSchema, routineSchema, requestResponseSchema } from '../src/domain';
 import { Store } from './store';
 import { Hermes } from './hermes';
+import { Computers } from './computers';
+import type { Server } from 'node:http';
+import { WebSocket, WebSocketServer } from 'ws';
 
 export function createApp(dataRoot: string) {
   const app = express();
@@ -18,6 +21,76 @@ export function createApp(dataRoot: string) {
     for (const client of clients) client.write('data: changed\n\n');
   };
   const hermes = new Hermes(store, changed);
+  const computers = new Computers(store, changed);
+  hermes.beforeRun = (bot) => computers.configure(bot, hermes.python || '');
+  const sockets = new WebSocketServer({ noServer: true, maxPayload: 8_000_000 });
+  function attach(server: Server) {
+    const address = server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('Backend must listen before attaching computers.');
+    computers.bindOrigin(`http://127.0.0.1:${address.port}`);
+    server.on('upgrade', (req, socket, head) => {
+      const match = /^\/api\/bots\/([a-zA-Z0-9-]+)\/computer\/ws$/.exec(req.url || '');
+      const host = req.headers.host || '';
+      if (
+        !match ||
+        !/^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(host) ||
+        req.headers.origin !== `http://${host}`
+      ) {
+        socket.destroy();
+        return;
+      }
+      void computers
+        .view(match[1])
+        .then(({ host }) => {
+          if (socket.destroyed) return;
+          sockets.handleUpgrade(req, socket, head, (client) => {
+            const upstream = new WebSocket(`ws://${host}:6080`, ['binary'], {
+              maxPayload: 8_000_000,
+            });
+            const pending: Buffer[] = [];
+            let bytes = 0;
+            client.on('message', (data, binary) => {
+              if (!binary) {
+                client.close();
+                return;
+              }
+              if (upstream.readyState === WebSocket.OPEN) upstream.send(data);
+              else {
+                const value = Buffer.isBuffer(data)
+                  ? data
+                  : Array.isArray(data)
+                    ? Buffer.concat(data)
+                    : Buffer.from(data);
+                bytes += value.length;
+                if (bytes > 1_000_000) client.close();
+                else pending.push(value);
+              }
+            });
+            upstream.on('open', () => {
+              for (const data of pending) upstream.send(data);
+              pending.length = 0;
+            });
+            upstream.on('message', (data) => {
+              if (client.readyState === WebSocket.OPEN) client.send(data);
+            });
+            upstream.on('error', (error) => {
+              if (process.env.TEAMMATES_DEBUG)
+                console.error('Computer screen upstream:', error.message);
+              client.close();
+            });
+            client.on('error', () => upstream.close());
+            upstream.on('close', (code, reason) => {
+              if (process.env.TEAMMATES_DEBUG)
+                console.error('Computer screen closed:', code, reason.toString());
+              client.close();
+            });
+            client.on('close', () => upstream.close());
+          });
+        })
+        .catch(() => socket.destroy());
+    });
+  }
   app.use((req, res, next) => {
     const host = req.headers.host || '';
     if (!/^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(host))
@@ -102,6 +175,50 @@ export function createApp(dataRoot: string) {
       routineOutputs: store.outputs(id),
       activity: store.state.activity.filter((a) => a.botId === id).slice(-100),
     });
+  });
+  app.get('/api/bots/:id/computer', async (req, res) =>
+    res.json(await computers.status(req.params.id)),
+  );
+  app.post('/api/bots/:id/computer/enable', async (req, res) => {
+    const bot = store.bot(req.params.id);
+    if (hermes.running.has(bot.id))
+      return res.status(409).json({ error: 'Stop this Bot before changing its computer.' });
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+    if (enabled && !hermes.python)
+      return res.status(503).json({ error: 'Set up Hermes before enabling computer tools.' });
+    if (!enabled) await computers.sleep(bot.id);
+    bot.computerEnabled = enabled;
+    store.writeProfile(bot);
+    computers.configure(bot, hermes.python || '');
+    store.save();
+    hermes.reset(bot.id);
+    changed();
+    res.json(await computers.status(bot.id));
+  });
+  app.post('/api/bots/:id/computer/wake', (req, res) => {
+    store.bot(req.params.id);
+    const waking = computers.wake(req.params.id);
+    void waking.catch(() => {});
+    res.status(202).json({ accepted: true });
+  });
+  app.post('/api/bots/:id/computer/sleep', async (req, res) => {
+    if (hermes.running.has(req.params.id))
+      return res.status(409).json({ error: 'Stop the Bot before putting its computer to sleep.' });
+    res.json(await computers.sleep(req.params.id));
+  });
+  app.post('/api/bots/:id/computer/control', async (req, res) => {
+    const { human } = z.object({ human: z.boolean() }).parse(req.body);
+    res.json(await computers.control(req.params.id, human));
+  });
+  app.get('/api/bots/:id/computer/view', async (req, res) => {
+    const { password, control } = await computers.view(req.params.id);
+    res.json({ password, control, path: `/api/bots/${req.params.id}/computer/ws` });
+  });
+  app.post('/api/bots/:id/computer-tools/:tool', async (req, res) => {
+    store.bot(req.params.id);
+    if (!computers.authorized(req.params.id, req.headers.authorization))
+      return res.status(403).json({ error: 'Computer capability rejected.' });
+    res.json(await computers.tool(req.params.id, req.params.tool, req.body));
   });
   app.post('/api/bots/:id/messages', async (req, res) => {
     const bot = store.bot(req.params.id);
@@ -295,9 +412,14 @@ export function createApp(dataRoot: string) {
     app,
     store,
     hermes,
+    computers,
+    attach,
     close: async () => {
       for (const res of clients) res.end();
+      for (const socket of sockets.clients) socket.terminate();
+      sockets.close();
       await hermes.close();
+      await computers.close();
     },
   };
 }
@@ -326,7 +448,14 @@ async function main() {
   const server = context.app.listen(port, '127.0.0.1', () => {
     process.stdout.write(`Hermes Teammates listening on http://127.0.0.1:${port}\n`);
   });
+  await new Promise<void>((resolve) => {
+    if (server.listening) resolve();
+    else server.once('listening', resolve);
+  });
+  context.attach(server);
   await context.hermes.probe();
+  for (const bot of context.store.state.bots)
+    if (bot.computerEnabled) context.computers.configure(bot, context.hermes.python || '');
   context.hermes.startScheduler();
   for (const signal of ['SIGINT', 'SIGTERM'])
     process.once(signal, () => {

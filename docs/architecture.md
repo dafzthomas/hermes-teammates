@@ -9,11 +9,13 @@ React / Electron
         │ same-origin HTTP + server-sent change notifications
 Loopback server
         ├── teammates.json: Bot roster, groups, activity, group display transcript
+        ├── Apple container manager: per-Bot VM, named home volume, private screen proxy
         └── Hermes gateway: one persistent stdio process per active Bot profile
                  ├── profile configuration and credential file
                  ├── native SQLite sessions (app reads, never rewrites)
                  ├── MEMORY.md / USER.md / skills / workspace
                  ├── native message_agent delivery to another profile
+                 ├── profile-bound MCP → app computer tools → that Bot’s VM
                  └── native cron jobs + scheduler + saved outputs
 ```
 
@@ -54,6 +56,36 @@ The Python bridge imports Hermes' installed cron library and exposes JSON-only c
 `profile.yaml` marks the app-owned profiles as Bot Mode participants. The permanent Bot Chat enables Hermes' native `message_agent` tool. Hermes maintains target validation, asynchronous delivery, sender attribution and recipient history. The app records outbound tool activity and reads the resulting native transcripts. A dispatch acknowledgement is not proof of delivery; the recipient transcript/result is the evidence.
 
 Group membership and a display transcript live in app metadata. On a user message, members run in order with a bounded recent group context and separate native group conversations. Private Bot Chat history is not added to the group context. The current design has no native group mention router, persistent group worker or cross-process group lock; only one backend should own a data directory.
+
+## Bot computers
+
+The app creates named Apple container VMs under a namespace derived from the
+workspace path. Each VM is labelled with its owning namespace and receives only
+a named home volume. A one-shot root initialization fixes volume ownership; the
+desktop and all agent commands run as `bot` (uid 1000). There are no host path
+mounts or provider environment variables in the desktop. Browser state and files
+remain in the volume across sleep. Containers are stopped on clean shutdown and
+after 20 minutes idle, except during manual control or an in-flight tool action.
+
+A private profile descriptor holds a random per-backend MCP capability and the
+loopback URL. Hermes starts the small stdio MCP adapter with that descriptor,
+using its own installed Python SDK. Native target-profile workers therefore read
+the recipient’s capability, rather than inheriting the sender’s computer. The
+capability is checked against the Bot ID on every tool call. Existing non-app MCP
+configuration is preserved. Startup refreshes descriptors for enabled computers.
+
+The browser connects to a same-origin WebSocket. The server validates Host and
+Origin, looks up only the owning VM’s private IPv4 address, and proxies its VNC
+stream. The guest screen uses a separate random VNC password. No arbitrary proxy
+target is accepted. noVNC starts in watch mode; taking control gates new MCP
+computer actions and waits for existing app-owned actions to finish. Hand-back
+releases the gate. It does not stop processes previously started in the VM or
+intercept native Hermes host tools.
+
+The VM home and host workspace are separate. No automatic file copy, credential
+injection, browser login management, whole-agent sandbox, or remote desktop
+service is implied by this surface. Native Hermes tools remain capable of acting
+on the host under the current OS account.
 
 ## Security
 

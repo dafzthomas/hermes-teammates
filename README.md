@@ -6,7 +6,7 @@ An original, MIT-licensed desktop workspace for persistent Hermes agents, inspir
 
 _Actual compiled interface with controlled integration-test content._
 
-Each Bot has a role, model configuration, conversation history, memory, skills, workspace files and credential file. Bots can hand work to one another through Hermes' native `message_agent` tool. Groups bring multiple Bots into one visible conversation. Routines use Hermes' own cron store and scheduler.
+Each Bot has a role, model configuration, conversation history, memory, skills, workspace files and credential file. Bots can hand work to one another through Hermes' native `message_agent` tool. Groups bring multiple Bots into one visible conversation. Routines use Hermes' own cron store and scheduler. Each Bot can also have its own Linux computer with a live screen and manual takeover.
 
 **First local release:** this is a working foundation, not full Grok Bot feature parity. See [the feature audit and alternatives](docs/research.md), [architecture and security boundaries](docs/architecture.md), and [verification](docs/verification.md).
 
@@ -49,6 +49,38 @@ No real model credentials are included. The integration test uses a controlled l
 
 Routines run while the backend is running. Closing the desktop app quits its backend. Sleeping the computer pauses local work. For an always-on service, run the backend on an awake machine; authenticated remote access and service installation are not included here.
 
+## Bot computers
+
+On Apple silicon with macOS 26 or later, install [Apple container](https://github.com/apple/container):
+
+```sh
+brew install container
+container system start
+```
+
+Open a Bot’s **Computer** tab and choose **Set up computer**. The first start builds
+a Debian desktop image with Chromium, Openbox and a terminal (roughly 500 MB
+compressed; allow several minutes). Each running desktop uses two CPUs and 2 GB
+of memory. Subsequent starts reuse the image. Hermes needs its MCP SDK installed;
+managed installations can prepare it with `hermes pm install --extra mcp`.
+
+Watch the live screen, **Take control** to use its keyboard and mouse, then
+**Hand back** so the Bot can continue. The Bot uses the same desktop through
+`computer_screenshot`, `computer_action` and `computer_shell` MCP tools. Its home,
+files and browser logins survive sleep. Idle desktops sleep after 20 minutes;
+manual control keeps them awake. Closing the app stops its owned desktops.
+
+Screenshots use Hermes’ native image cache. Visual navigation requires a configured
+vision model for `vision_analyze`; shell and manual browser control work independently.
+
+![Live Bot computer in the compiled interface](docs/computer.png)
+
+VM files live in per-Bot Apple container named volumes. The host **Files** panel
+and the guest `~/workspace` are separate; there is no automatic host mount or file
+sync. Model credentials stay with Hermes on the host. Native host tools still
+run under your account, so enabling a computer does not sandbox the whole agent.
+Computers currently require macOS; the rest of the interface can run without them.
+
 ## Storage and runtime configuration
 
 The browser backend defaults to `~/.hermes-teammates`. Electron uses its OS application-data directory. To use the same data in either mode, set `TEAMMATES_DATA_DIR` to an absolute directory. The app does not import or change existing personal Hermes profiles.
@@ -56,6 +88,7 @@ The browser backend defaults to `~/.hermes-teammates`. Electron uses its OS appl
 | Variable              | Purpose                                                                                                            |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `TEAMMATES_DATA_DIR`  | App metadata and dedicated Hermes profile root                                                                     |
+| `TEAMMATES_CONTAINER` | Optional absolute path to Apple’s `container` executable                                                           |
 | `PORT`                | Loopback HTTP port, default `4310`                                                                                 |
 | `HERMES_EXECUTABLE`   | Hermes executable, default `~/.local/bin/hermes`                                                                   |
 | `HERMES_PYTHON`       | Python interpreter for native interactive chat and routines; discovered from modern Hermes launchers when possible |
@@ -71,7 +104,7 @@ Managed Hermes installations share their installed dependencies through an `inst
 - Credentials are stored in per-profile `.env` files with owner-only permissions, not an encrypted vault. The API returns credential names only. Known values are redacted from displayed transcripts, but transformed or previously unknown secrets cannot be guaranteed absent. Configure native Hermes external secret stores separately if needed.
 - Interactive chat uses Hermes manual approvals. Native gated actions display Allow/Deny cards; questions display choice or text forms, including multiple questions. Private credential/sudo prompts use a masked input. Unattended one-shot routines retain `deny` approval mode. Hermes does not gate every tool; these controls do not replace a sandbox.
 - The server binds to loopback and rejects foreign Host/Origin headers. It has no remote-user authentication. Do not expose it directly to the internet.
-- No computer-view panel, managed browser-login UI, voice, mobile apps, editable Slack/email send-draft cards, webhooks, or account/team sharing is included. File uploads are text/source files up to 2 MB. Bot search filters the roster.
+- No managed browser-login UI, voice, mobile apps, editable Slack/email send-draft cards, webhooks, or account/team sharing is included. File uploads are text/source files up to 2 MB. Bot search filters the roster.
 
 ## Develop
 
@@ -83,4 +116,4 @@ npm run build
 
 `npm test` runs store/API checks and, if Hermes is installed, a real Hermes integration with a local inference fixture. It does not test live paid providers. Browser/desktop checks are documented separately.
 
-This project contains no proprietary Grok app bundle, extracted UI code, logos or fonts. The private `reference/` research checkouts are ignored and are not part of the project or a desktop package. [unGrokBot](https://github.com/dafzthomas/unGrokBot) informed the interaction research; it requires the original app bundle, whereas this interface is authored independently. Not affiliated with xAI, Cursor or Nous Research. Hermes and dependencies retain their own licenses.
+This project contains no proprietary Grok app bundle, extracted UI code, logos or fonts. The private `reference/` research checkouts are ignored and are not part of the project or a desktop package. [unGrokBot](https://github.com/dafzthomas/unGrokBot) informed the interaction research; it requires the original app bundle, whereas this interface is authored independently. Not affiliated with xAI, Cursor or Nous Research. Hermes and dependencies retain their own licenses. Adapted MIT computer-runtime material and the noVNC screen client are credited in [third-party notices](THIRD_PARTY_NOTICES.md).

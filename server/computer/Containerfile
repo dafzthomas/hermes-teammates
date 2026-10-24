@@ -1,0 +1,16 @@
+# Desktop arrangement adapted from unGrokBot (MIT, Copyright 2026 Dafydd Thomas).
+# See THIRD_PARTY_NOTICES.md. No proprietary application assets are used.
+FROM debian:trixie-slim
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 DISPLAY=:0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb x11vnc x11-utils x11-xserver-utils websockify openbox tint2 xterm xdotool \
+    imagemagick chromium fonts-noto fonts-noto-color-emoji ca-certificates curl git \
+    python3 nodejs npm procps dbus-x11 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -s /bin/bash bot
+COPY start.sh /usr/local/bin/start-computer
+RUN chmod +x /usr/local/bin/start-computer && mkdir -m 1777 -p /tmp/.X11-unix
+USER bot
+WORKDIR /home/bot
+EXPOSE 6080
+CMD ["/usr/local/bin/start-computer"]
