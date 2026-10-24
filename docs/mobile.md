@@ -57,6 +57,11 @@ that address. A private network or VPN is recommended. The app rejects cleartext
 HTTP, URL credentials, URL paths and redirects. There is no certificate-validation
 bypass or production test certificate bundled with the app.
 
+On iOS, allow Local Network access when connecting to a host on the same Wi-Fi
+network. If access was denied, enable it for Hermes Teammates in Settings →
+Privacy & Security → Local Network, then retry. This permission does not replace
+TLS validation or device pairing. See [Apple's local-network privacy guidance](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
+
 For example, on the backend host:
 
 ```sh

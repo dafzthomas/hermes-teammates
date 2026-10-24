@@ -119,6 +119,11 @@ exception. That overlay was removed before the final clean debug/release build.
 The source includes no test CA or TLS bypass. The two native device credentials
 were revoked after acceptance and the owned host was stopped.
 
+Pre-merge review added the iOS local-network permission explanation for hosts on
+Wi-Fi. The ad-hoc-signed simulator build passed with the purpose string present
+in its compiled Info.plist. The Wi-Fi permission prompt still needs a physical
+device check; simulator localhost acceptance does not prove that permission flow.
+
 Failures were retained and diagnosed during verification:
 
 - The initial unsigned iOS executable launched but Keychain rejected writes. The
