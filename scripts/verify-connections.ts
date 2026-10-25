@@ -41,7 +41,15 @@ try {
     backend.on('error', reject);
   });
   await page.goto(url);
-  await expect(page.getByText('Hermes connected', { exact: true })).toBeVisible({ timeout: 30000 });
+  await expect
+    .poll(
+      async () => (await (await page.request.get(`${url}/api/state`)).json()).runtime.available,
+      { timeout: 30000 },
+    )
+    .toBe(true);
+  await expect(page.getByRole('button', { name: 'Show Bot details', exact: true })).toBeVisible({
+    timeout: 30000,
+  });
   const bot = await page.request.put(`${url}/api/bots/default`, {
     data: {
       name: 'Hermes',
@@ -60,10 +68,12 @@ try {
   });
   expect(secret.ok()).toBeTruthy();
   await page.reload();
+  await page.getByRole('button', { name: 'Show Bot details', exact: true }).click();
   await page.getByRole('button', { name: 'Apps Connect tools to this Bot' }).click();
   await page.getByRole('button', { name: 'Connect app', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('App name', { exact: true }).fill('Team messenger');
+  await dialog.locator('details.advanced > summary').click();
   await dialog.getByLabel('Connection type').selectOption('stdio');
   await dialog.getByLabel('Command', { exact: true }).fill(process.execPath);
   await dialog
@@ -71,10 +81,12 @@ try {
     .fill(JSON.stringify([path.resolve('test/fixtures/app-mcp.mjs'), output]));
   await dialog.getByRole('button', { name: 'Connect app', exact: true }).click();
   await expect(page.locator('.connection-card')).toContainText('Team messenger');
+  await expect(dialog).toBeHidden();
   fs.mkdirSync('test-artifacts', { recursive: true });
   await page.screenshot({ path: 'test-artifacts/app-connections.png', fullPage: true });
   const composer = page.getByPlaceholder('Message Hermes…');
   await composer.fill('APP_REVIEW_ALLOW: send the draft.');
+  await expect(composer).toHaveValue('APP_REVIEW_ALLOW: send the draft.');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   const review = page.getByRole('region', { name: 'Hermes app action review' });
   await expect(review).toBeVisible({ timeout: 40000 });
@@ -132,7 +144,9 @@ try {
     });
     try {
       const window = await desktop.firstWindow();
-      await expect(window.getByText('Hermes connected', { exact: true })).toBeVisible({
+      await expect(
+        window.getByRole('button', { name: 'Show Bot details', exact: true }),
+      ).toBeVisible({
         timeout: 30000,
       });
       await window
@@ -160,6 +174,11 @@ try {
   console.log(
     'Compiled app connection and editable native review passed, including reload, invalid JSON and 390px layout.',
   );
+} catch (error) {
+  console.error('Compiled app connection acceptance failed:', error);
+  console.error(await page.getByRole('main').innerText());
+  console.error((await (await page.request.get(`${url}/api/state`)).json()).runtime);
+  throw error;
 } finally {
   await browser.close();
   if (backend.exitCode === null && backend.signalCode === null)

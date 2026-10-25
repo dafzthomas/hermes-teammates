@@ -1,0 +1,7 @@
+[data-native-controls='active'] {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+[data-native-controls='active'] * {
+  visibility: hidden !important;
+}

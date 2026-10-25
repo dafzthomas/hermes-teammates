@@ -1,0 +1,96 @@
+.transcript-activity,
+.transcript-action {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+.transcript-activity > summary,
+.transcript-action > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 8px 4px;
+  cursor: pointer;
+  list-style: none;
+}
+.transcript-activity > summary::-webkit-details-marker,
+.transcript-action > summary::-webkit-details-marker {
+  display: none;
+}
+.transcript-activity > summary:hover,
+.transcript-action > summary:hover {
+  color: #eee;
+}
+.transcript-activity > summary svg,
+.transcript-action > summary svg {
+  flex-shrink: 0;
+}
+.transcript-action-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transcript-chevron {
+  margin-left: auto;
+}
+.transcript-activity[open] > summary > .transcript-chevron,
+.transcript-action[open] > summary > .transcript-chevron {
+  transform: rotate(90deg);
+}
+.transcript-actions {
+  border-left: 1px solid var(--border);
+  margin-left: 11px;
+  padding-left: 14px;
+}
+.transcript-actions > .transcript-action {
+  margin-bottom: 0;
+}
+.transcript-raw {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+  max-height: 320px;
+  margin: 4px 0 12px;
+  padding: 12px;
+  background: #191919;
+  color: #c3c3c3;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.transcript-attention {
+  min-width: 0;
+  max-width: 100%;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.routine-output {
+  padding: 0 12px 12px;
+  max-height: 250px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #ddd;
+}
+.routine-output > :first-child {
+  margin-top: 0;
+}
+.routine-output > :last-child {
+  margin-bottom: 0;
+}
+
+@media (min-width: 701px) and (pointer: fine) {
+  .transcript-activity > summary,
+  .transcript-action > summary {
+    min-height: 32px;
+    padding-block: 5px;
+    font-size: 13px;
+  }
+}

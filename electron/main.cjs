@@ -2,6 +2,7 @@ const { app, BrowserWindow, shell, dialog } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const net = require('node:net');
+const { installNativeControls } = require('./native-controls.cjs');
 let backend;
 let stopping = false;
 let backendStopped = false;
@@ -56,8 +57,14 @@ async function open() {
     minHeight: 560,
     title: 'Hermes Teammates',
     backgroundColor: '#111111',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: path.join(__dirname, 'preload.cjs'),
+    },
   });
+  installNativeControls(win, url);
   win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) =>
     callback(false),
   );

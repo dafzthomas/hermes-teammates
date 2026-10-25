@@ -54,7 +54,7 @@ After installing Playwright Chromium (`npx playwright install chromium`), run:
 npm run verify:ui
 ```
 
-The script starts the compiled backend and a controlled model endpoint. It interacts with the real rendered interface to create/edit a Bot, add a masked credential, save memory and a skill, upload a text file, create/pause/resume a native routine, send a real Hermes turn, reload history, restore a pending question after window reload, submit steering and an answer, deny an approval, stop a waiting question, open a separate thread, create a group and receive two profile responses. It also schedules an actual due Hermes job while another Bot is selected, opens its native question, answers, switches to Computer and verifies the completed reply stays unread. Reload preserves the badge; opening Chat clears it. Separate thread and two-member group replies receive independent badges, including group state after reload. It checks narrow-screen navigation and absence of horizontal overflow, then launches the Electron shell and answers another real native question. Temporary data and owned servers are removed afterward. Screenshots are written to ignored `test-artifacts/`.
+The script starts the compiled backend and a controlled model endpoint. It interacts with the real rendered interface to create/edit a Bot, add a masked credential, save memory and a skill, upload a text file, create/pause/resume a native routine, send a real Hermes turn, reload history, restore a pending question after window reload, submit steering and an answer, deny an approval, stop a waiting question, recover a pending legacy question in the main Bot chat, create a group and receive two profile responses. It also schedules an actual due Hermes job while another Bot is selected, opens its native question, answers, switches to Computer and verifies the completed reply stays unread. Reload preserves the badge; opening Chat clears it. Canonical private history and two-member group replies receive independent badges, including group state after reload. It checks narrow-screen navigation and absence of horizontal overflow, then launches the Electron shell. On Mac it asserts the native control presentation handshake. Set `TEAMMATES_NATIVE_INTERACTIVE=1` to wait for actual AppKit input and then answer another real native question. Browser and native input evidence are recorded separately. Temporary data and owned servers are removed afterward. Screenshots are written to ignored `test-artifacts/`.
 
 The expanded conversation check exposed a pending user-message bubble carried from
 an interrupted turn into a new empty thread. Conversation switching now clears
@@ -191,3 +191,90 @@ The compiled vault flow and actual private login fill also passed from the rebui
 Authenticated mobile access and the iOS/Android clients are documented and verified
 separately in [mobile verification](mobile-verification.md). The historical desktop
 results above do not substitute for device or remote-network acceptance.
+
+## Consumer chat and native controls follow-up — 25 October 2026
+
+The consumer interface now has one canonical private chat per Bot. Groups remain
+separate. Completed tool records use shared compact disclosures in both clients;
+questions, approvals, failures, and current activity retain their own presentation.
+Routine results ask once about that routine's future updates. Never changes delivery
+targets while retaining the enabled schedule. Bespoke criteria prepare an editable
+message for the Bot rather than claiming an unsupported scheduler filter.
+
+The focused store and parser regressions cover timestamp/ID canonical read cursors,
+legacy cursor migration, group isolation, native failure envelopes, ordinary Error
+headings, and persistent per-routine preferences. The native resolver fixture checks
+all/error/never result and failure targets with real installed Hermes APIs in
+temporary homes. These checks do not establish live provider inference or an actual
+scheduled run under every preference.
+
+Mac controls use in-process AppKit views and NSGlassEffectView on supported systems;
+iOS uses UIKit views inside UIGlassEffect. Both retain opaque native fallbacks for
+older systems and Reduce Transparency. The web transcript and settings remain React.
+The browser and Android/Windows/Linux controls retain their platform styling.
+
+Interactive acceptance on macOS verified the web conversation alongside native AX
+navigation and composer controls, native typing and Shift-Return, Return submission
+and a completed Hermes reply, full Researcher title rendering, modal hide/restore,
+and explicit contextual routine focus without losing an existing draft. CUA returned
+AXError.failure for some native button presses even though the next observed tree
+showed the intended action had occurred. Those tool errors were not counted as
+failed actions or retried blindly. The earlier content-view wrapper exposed AX but
+blanked Chromium rendering; it was removed before this simultaneous rendering/AX
+check.
+
+The iPhone simulator acceptance used the authenticated fixture host and native secure
+storage. It verified native typing, submission, Stop, native controls after fresh
+launch, and the contextual routine action focusing the actual UITextView with its
+prepared draft. Keyboard/composer screenshots were inspected. The device tool
+reported a text-entry mismatch once despite identical expected and observed strings;
+the subsequent native snapshot and submitted request confirmed the entered text.
+
+The full compiled mobile browser journey passed pairing, Bot creation, questions,
+steering, approvals, delayed-refresh Stop, response ordering, memory, routine
+preference persistence, legacy requests, proactive routine questions, group replies,
+revocation, page-error checks, and narrow layout. This browser lane uses a transport
+fixture and does not prove UIKit. An initial cleanup error masked a 409 caused by
+the journey starting a legacy request before its previous turn completed. The
+verifier now records the original failure, waits for backend idleness, and retries
+busy-directory cleanup. The corrected journey passed.
+
+Native Mac builds cover arm64, x86_64, and a universal module. iOS simulator builds
+cover arm64 and x86_64. The nine CJS bridge security/lifecycle tests run in the default npm test
+gate. Apple compiler regressions run separately with
+`node electron/test-native-lifecycle.cjs`. Signed distribution, physical iOS devices, older Apple OS fallbacks, native
+IME composition, and real paid providers remain separate unverified boundaries.
+
+The full compiled desktop journey passed the canonical-chat, routine-preference,
+legacy-request, resource, question/approval, Stop, group, proactive-delivery, unread,
+and responsive-layout checks. The connections and vault browser journeys also
+passed. Connections initially filled an inert background composer before its save
+dialog closed; the corrected journey waits for dialog dismissal before typing.
+
+The unpacked ARM Mac package was built and launched with an isolated copy of the
+disposable fixture. Its packaged native module loaded, exposed both web and native
+AX content, accepted native Return submission, and completed a real Hermes question
+and answer. Window zoom retained the native controls and web conversation. Killing
+only that package's renderer removed native navigation and composer controls from
+the screen and AX tree. The last lifecycle patches passed independent source review
+and focused production-method native regressions. An actual accessibility-setting
+change after renderer loss and a WebKit process-termination race were not driven;
+the regression tests establish those state transitions separately. Fresh launch
+and native presentation on the rebuilt iPhone simulator binary passed after the
+pre-Capacitor generation-capture repair.
+
+The final iPhone build also accepted native typing and Send after the queue-fence
+patch, and its completed response appeared in the main Bot chat.
+
+The final sidebar places New Bot beside the Teammates heading, with Search and the
+workspace avatar at the bottom. The selected Bot has no left stripe. A compiled
+1280×800 browser check confirmed that the New Bot and Search controls share the Bot
+rows' right edge. The 390×650 layout was also inspected and measured.
+
+Before PR delivery, formatting, desktop and mobile builds, the default test suite,
+the explicit composer-focus browser regression, and the Apple lifecycle compiler
+regressions passed again. The default suite passed 29 TypeScript tests and nine CJS
+bridge tests; its Apple VM integration test remains opt-in and was skipped. The three
+native routine resolver tests also passed with Hermes' Python environment and
+`HERMES_SOURCE` set to its installed source directory. System Python alone lacks
+Hermes' `cron` module and cannot run that fixture.

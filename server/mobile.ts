@@ -79,7 +79,9 @@ export function mobileRoute(method: string, url: string) {
   if (/%|\\|\/\//.test(pathname)) return false;
   if (method === 'GET') return /^\/api\/(state|bots\/[\w-]+|groups\/[\w-]+)$/.test(pathname);
   if (method === 'PUT')
-    return /^\/api\/bots\/[\w-]+(?:\/memory|\/secrets\/[A-Z_][A-Z0-9_]*)?$/.test(pathname);
+    return /^\/api\/bots\/[\w-]+(?:\/memory|\/secrets\/[A-Z_][A-Z0-9_]*|\/routines\/[\w-]+\/preference)?$/.test(
+      pathname,
+    );
   if (method === 'DELETE') return /^\/api\/bots\/[\w-]+\/secrets\/[A-Z_][A-Z0-9_]*$/.test(pathname);
   if (method !== 'POST') return false;
   return /^\/api\/(bots|groups|bots\/[\w-]+\/(messages|read|stop|steer|requests\/[\w-]+|routines(?:\/[\w-]+\/(pause|resume|remove))?)|groups\/[\w-]+\/(messages|read))$/.test(

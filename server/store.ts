@@ -4,11 +4,17 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import YAML from 'yaml';
 import { z } from 'zod';
+import { nativeRoutinePreference, parseRoutineOutput } from './routine-output';
 import {
   botSchema,
   groupSchema,
   activitySchema,
   connectionSchema,
+  routinePreferenceSchema,
+  routineUpdatePromptSchema,
+  type Routine,
+  type RoutinePreference,
+  type RoutineOutput,
   type Bot,
   type Activity,
   type Provider,
@@ -20,9 +26,25 @@ const stateSchema = z.object({
   groups: z.array(groupSchema),
   activity: z.array(activitySchema),
   connections: z.array(connectionSchema).default([]),
+  routinePreferences: z
+    .array(
+      z.object({
+        botId: z.string(),
+        routineId: z.string(),
+        preference: routinePreferenceSchema.nullable(),
+        prompt: routineUpdatePromptSchema.nullable(),
+      }),
+    )
+    .default([]),
   readCursors: z
     .array(
-      z.object({ botId: z.string(), title: z.string(), sequence: z.number().int().nonnegative() }),
+      z.object({
+        botId: z.string(),
+        title: z.string(),
+        sequence: z.number().int().nonnegative(),
+        timestamp: z.number().optional(),
+        canonical: z.boolean().default(false),
+      }),
     )
     .default([]),
   groupReads: z.record(z.string(), z.string()).default({}),
@@ -256,7 +278,18 @@ export class Store {
     this.memory(id, name);
     this.atomic(path.join(this.home(id), 'memories', `${name}.md`), content);
   }
-  history(id: string, title = 'Bot Chat') {
+  conversationScope(title: string, canonical: boolean) {
+    if (canonical) {
+      if (title !== 'Bot Chat') throw new Error('Canonical history belongs to Bot Chat.');
+      return { sql: `substr(COALESCE(s.title,''),1,6) != 'Group '`, params: [] as string[] };
+    }
+    return {
+      sql: `(s.title=? OR substr(s.title,1,length(?))=?)`,
+      params: [title, `${title} #`, `${title} #`],
+    };
+  }
+  history(id: string, title = 'Bot Chat', canonical = false) {
+    const scope = this.conversationScope(title, canonical);
     const file = path.join(this.home(id), 'state.db');
     if (!fs.existsSync(file)) return { messages: [], sessions: [] };
     const db = new DatabaseSync(file, { readOnly: true });
@@ -274,9 +307,9 @@ export class Store {
       const rows = rowsSchema.parse(
         db
           .prepare(
-            `SELECT * FROM (SELECT m.id, m.role, m.content, m.timestamp, m.session_id, m.tool_name FROM messages m JOIN sessions s ON m.session_id=s.id WHERE (s.title=? OR substr(s.title,1,length(?))=?) AND s.hidden=0 AND s.source != 'cron' AND m.active=1 ORDER BY m.timestamp DESC, m.id DESC LIMIT 2000) ORDER BY timestamp, id`,
+            `SELECT * FROM (SELECT m.id, m.role, m.content, m.timestamp, m.session_id, m.tool_name FROM messages m JOIN sessions s ON m.session_id=s.id WHERE ${scope.sql} AND s.hidden=0 AND s.source != 'cron' AND m.active=1 ORDER BY m.timestamp DESC, m.id DESC LIMIT 2000) ORDER BY timestamp, id`,
           )
-          .all(title, `${title} #`, `${title} #`),
+          .all(...scope.params),
       );
       return {
         sessions,
@@ -295,7 +328,8 @@ export class Store {
       db.close();
     }
   }
-  acknowledge(id: string, title: string, messageId: string) {
+  acknowledge(id: string, title: string, messageId: string, canonical = false) {
+    const scope = this.conversationScope(title, canonical);
     const match = /^(.+):([0-9]+)$/.exec(messageId);
     const sequence = Number(match?.[2]);
     if (!match || !Number.isSafeInteger(sequence) || sequence <= 0)
@@ -303,23 +337,55 @@ export class Store {
     const file = path.join(this.home(id), 'state.db');
     if (!fs.existsSync(file)) throw new Error('Conversation not found.');
     const db = new DatabaseSync(file, { readOnly: true });
+    const cursor = this.state.readCursors.find(
+      (c) => c.botId === id && c.title === title && c.canonical === canonical,
+    );
+    let timestamp = 0;
+    let previousTimestamp: number | undefined;
     try {
-      const row = db
-        .prepare(
-          `SELECT m.id FROM messages m JOIN sessions s ON s.id=m.session_id
+      const row = z
+        .object({ id: z.number(), timestamp: z.number() })
+        .optional()
+        .parse(
+          db
+            .prepare(
+              `SELECT m.id,m.timestamp FROM messages m JOIN sessions s ON s.id=m.session_id
         WHERE m.id=? AND m.session_id=? AND m.role='assistant' AND m.active=1
         AND trim(COALESCE(m.content,'')) != '' AND s.hidden=0 AND s.source != 'cron'
-        AND (s.title=? OR substr(s.title,1,length(?))=?)`,
-        )
-        .get(sequence, match[1], title, `${title} #`, `${title} #`);
+        AND ${scope.sql}`,
+            )
+            .get(sequence, match[1], ...scope.params),
+        );
       if (!row) throw new Error('Message is not a visible reply in this conversation.');
+      timestamp = row.timestamp;
+      if (canonical) {
+        previousTimestamp =
+          cursor?.timestamp ??
+          z
+            .object({ timestamp: z.number() })
+            .optional()
+            .parse(
+              db.prepare('SELECT timestamp FROM messages WHERE id=?').get(cursor?.sequence || 0),
+            )?.timestamp;
+      }
     } finally {
       db.close();
     }
-    const cursor = this.state.readCursors.find((c) => c.botId === id && c.title === title);
-    if (sequence > (cursor?.sequence || 0)) {
-      if (cursor) cursor.sequence = sequence;
-      else this.state.readCursors.push({ botId: id, title, sequence });
+    const advances = canonical
+      ? previousTimestamp === undefined ||
+        timestamp > previousTimestamp ||
+        (timestamp === previousTimestamp && sequence > (cursor?.sequence || 0))
+      : sequence > (cursor?.sequence || 0);
+    if (advances) {
+      if (cursor) Object.assign(cursor, { sequence, ...(canonical ? { timestamp } : {}) });
+      else
+        this.state.readCursors.push({
+          botId: id,
+          title,
+          sequence,
+          canonical,
+          ...(canonical ? { timestamp } : {}),
+        });
       this.save();
     }
   }
@@ -334,7 +400,7 @@ export class Store {
       this.save();
     }
   }
-  inbox(): Inbox {
+  inbox(canonical = false): Inbox {
     const inbox: Inbox = { conversations: [], groups: [] };
     for (const bot of this.state.bots) {
       const file = path.join(this.home(bot.id), 'state.db');
@@ -350,8 +416,11 @@ export class Store {
               )
               .all(),
           );
-        const titles = new Set(sessions.map((s) => s.title.replace(/ #\d+$/, '')));
+        const titles = canonical
+          ? new Set(['Bot Chat'])
+          : new Set(sessions.map((s) => s.title.replace(/ #\d+$/, '')));
         for (const title of titles) {
+          const scope = this.conversationScope(title, canonical);
           if (this.state.groups.some((g) => title === `Group ${g.id}`)) continue;
           const latest = z
             .object({
@@ -366,26 +435,44 @@ export class Store {
                 .prepare(
                   `SELECT m.id,m.session_id,m.content,m.timestamp FROM messages m JOIN sessions s ON s.id=m.session_id
               WHERE s.hidden=0 AND s.source != 'cron' AND m.active=1 AND m.role='assistant'
-              AND trim(COALESCE(m.content,'')) != '' AND (s.title=? OR substr(s.title,1,length(?))=?)
-              ORDER BY m.id DESC LIMIT 1`,
+              AND trim(COALESCE(m.content,'')) != '' AND ${scope.sql}
+              ORDER BY ${canonical ? 'm.timestamp DESC, ' : ''}m.id DESC LIMIT 1`,
                 )
-                .get(title, `${title} #`, `${title} #`),
+                .get(...scope.params),
             );
           if (!latest) continue;
+          const cursor = this.state.readCursors.find(
+            (c) => c.botId === bot.id && c.title === title && c.canonical === canonical,
+          );
+          const timestamp = canonical
+            ? (cursor?.timestamp ??
+              z
+                .object({ timestamp: z.number() })
+                .optional()
+                .parse(
+                  db
+                    .prepare('SELECT timestamp FROM messages WHERE id=?')
+                    .get(cursor?.sequence || 0),
+                )?.timestamp)
+            : undefined;
+          const unreadScope = canonical
+            ? timestamp === undefined
+              ? '1=1'
+              : '(m.timestamp>? OR (m.timestamp=? AND m.id>?))'
+            : 'm.id>?';
+          const unreadParams = canonical
+            ? timestamp === undefined
+              ? []
+              : [timestamp, timestamp, cursor?.sequence || 0]
+            : [cursor?.sequence || 0];
           const { count } = z.object({ count: z.number() }).parse(
             db
               .prepare(
                 `SELECT COUNT(*) AS count FROM messages m JOIN sessions s ON s.id=m.session_id
               WHERE s.hidden=0 AND s.source != 'cron' AND m.active=1 AND m.role='assistant'
-              AND trim(COALESCE(m.content,'')) != '' AND m.id>? AND (s.title=? OR substr(s.title,1,length(?))=?)`,
+              AND trim(COALESCE(m.content,'')) != '' AND ${unreadScope} AND ${scope.sql}`,
               )
-              .get(
-                this.state.readCursors.find((c) => c.botId === bot.id && c.title === title)
-                  ?.sequence || 0,
-                title,
-                `${title} #`,
-                `${title} #`,
-              ),
+              .get(...unreadParams, ...scope.params),
           );
           inbox.conversations.push({
             botId: bot.id,
@@ -415,7 +502,64 @@ export class Store {
     }
     return inbox;
   }
-  outputs(id: string) {
+  setRoutinePreference(id: string, routineId: string, preference: RoutinePreference) {
+    this.bot(id);
+    const value = routinePreferenceSchema.parse(preference);
+    const existing = this.state.routinePreferences.find(
+      (p) => p.botId === id && p.routineId === routineId,
+    );
+    if (existing) existing.preference = value;
+    else
+      this.state.routinePreferences.push({ botId: id, routineId, preference: value, prompt: null });
+    this.save();
+  }
+  routineDetails(id: string, routines: Routine[]) {
+    const outputs = this.outputs(id, routines);
+    let changed = false;
+    const projected = routines.map((routine) => {
+      const preference = nativeRoutinePreference(routine);
+      const available =
+        preference !== null ||
+        (!routine.teammates_update_preference &&
+          routine.deliver === 'bot-chat' &&
+          [undefined, null, '', 'bot-chat'].includes(
+            routine.failure_deliver as string | null | undefined,
+          ) &&
+          routine.workdir === fs.realpathSync(path.join(this.home(id), 'workspace')));
+      let state = this.state.routinePreferences.find(
+        (p) => p.botId === id && p.routineId === routine.id,
+      );
+      if (!state && available && preference === null) {
+        const first = outputs
+          .filter((o) => o.routineId === routine.id && o.outcome === 'result')
+          .sort((a, b) => a.timestamp - b.timestamp || a.name.localeCompare(b.name))[0];
+        if (first) {
+          state = {
+            botId: id,
+            routineId: routine.id,
+            preference: null,
+            prompt: {
+              id: `routine-update:${id}:${routine.id}`,
+              routineId: routine.id,
+              outputName: first.name,
+            },
+          };
+          this.state.routinePreferences.push(state);
+          changed = true;
+        }
+      }
+      return {
+        ...routine,
+        updatePreference: preference,
+        updatePreferenceAvailable: available,
+        updatePrompt:
+          preference || state?.preference || !available ? null : (state?.prompt ?? null),
+      };
+    });
+    if (changed) this.save();
+    return { routines: projected, routineOutputs: outputs };
+  }
+  outputs(id: string, routines: Routine[] = []): RoutineOutput[] {
     const root = path.join(this.home(id), 'cron', 'output');
     if (!fs.existsSync(root)) return [];
     const files: string[] = [];
@@ -430,10 +574,30 @@ export class Store {
     visit(root, 0);
     return files
       .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
-      .slice(0, 15)
-      .map((p) => ({
-        name: path.relative(root, p),
-        content: this.redact(id, fs.readFileSync(p, 'utf8').slice(0, 60000)),
-      }));
+      .map((p) => {
+        const name = path.relative(root, p);
+        const parts = name.split(path.sep);
+        const routineId = parts.length === 2 ? parts[0] : null;
+        const raw = fs.readFileSync(p, 'utf8');
+        const { outcome, response } = routineId
+          ? parseRoutineOutput(raw, routineId)
+          : { outcome: 'unknown' as const, response: null };
+        const routine = routines.find((entry) => entry.id === routineId);
+        const preference = routine ? nativeRoutinePreference(routine) : null;
+        return {
+          name,
+          content: this.redact(id, raw.slice(0, 60000)),
+          response: response === null ? null : this.redact(id, response.slice(0, 60000)),
+          routineId,
+          timestamp: fs.statSync(p).mtimeMs,
+          outcome,
+          visibility:
+            preference === 'never' ||
+            outcome === 'silent' ||
+            (outcome === 'result' && preference === 'errors')
+              ? 'suppressed'
+              : 'shown',
+        };
+      });
   }
 }

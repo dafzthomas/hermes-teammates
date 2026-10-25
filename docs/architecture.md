@@ -1,5 +1,27 @@
 # Architecture and boundaries
 
+## Native Apple controls
+
+The transcript and details remain shared React views. On macOS, a sandboxed Electron
+preload exposes only presentation, hiding and finite control actions. The main process
+validates the exact app origin and main frame before passing bounded state to an
+in-process Node-API addon. AppKit renders the navigation and composer with actual
+`NSGlassEffectView` containers and native buttons and text editing. The addon is built
+before development launch and packaged as a Mac resource, with no runtime compilation.
+
+On iOS, a local Capacitor plugin renders the same control contract with UIKit and
+`UIGlassEffect`. Native controls use the existing Face artwork and system typography.
+Older Apple releases and Reduce Transparency use native opaque controls. Android,
+Windows, Linux and browsers retain the web controls with platform typography and
+appropriate pointer or touch target sizes.
+
+React remains authoritative for conversation identity, drafts and request state. Native
+controls emit draft, submit, Stop and navigation actions; they do not call the backend.
+The shared adapter fences actions by client session, conversation and edit sequence,
+and submits through the existing form handler. HTML controls remain measurable and
+become visually hidden only after the native host acknowledges presentation. Covering
+sheets hide native controls so they cannot receive input through a modal.
+
 ## Ownership
 
 React renders the roster, transcript and details. The loopback Express server validates requests, owns app metadata and starts Hermes child processes. Electron is a sandboxed desktop shell around that same backend. Hermes owns inference, tools, sessions, memories, learned skills, teammate delivery and cron jobs.
@@ -8,7 +30,7 @@ React renders the roster, transcript and details. The loopback Express server va
 React / Electron
         │ same-origin HTTP + server-sent change notifications
 Loopback server
-        ├── teammates.json: Bot roster, groups, activity, group display transcript, read cursors, app connections
+        ├── teammates.json: Bot roster, groups, activity, group display transcript, read cursors, app connections, routine update questions
         ├── Apple container manager: per-Bot VM, named home volume, private screen proxy
         └── Hermes gateway: one persistent stdio process per active Bot profile
                  ├── profile configuration and credential file
@@ -49,7 +71,7 @@ The client advertises native server-request support. Hermes sends `clarify`, `ap
 
 The child environment passes a small OS-variable allowlist, sets the correct HERMES_HOME, and excludes ambient provider keys. Credentials are loaded by Hermes from that profile. `HERMES_DISABLE_LAZY_INSTALLS=1` prevents bot startup from initiating source-update dependency installation or launcher publication. Managed installations reuse existing dependencies; custom installations can override executable, source, Python, tool store and dependency paths.
 
-The Python bridge imports Hermes' installed cron library and exposes JSON-only create/list/pause/resume/remove operations. It keeps native cron jobs authoritative. The app invokes `hermes cron tick` every 30 seconds, with one tracked tick per profile; Hermes owns job locking and due-run behavior. New jobs use Hermes native `deliver="bot-chat"`, including its durable delivery receipts, owner routing and offline fallback. The app does not enqueue a second copy or replay deliveries. Native routine context appears as an attributed card, and the Bot's follow-up reply stays in its canonical transcript. Original run results remain readable from native cron outputs. Existing jobs keep their native delivery target. This is not a hosted scheduler and does not promise work while the backend is stopped.
+The Python bridge imports Hermes' installed cron library and exposes JSON-only create/list/pause/resume/remove and per-routine update-preference operations. It keeps native cron jobs authoritative. The app invokes `hermes cron tick` every 30 seconds, with one tracked tick per profile; Hermes owns job locking and due-run behavior. New jobs use Hermes native `deliver="bot-chat"`, including its durable delivery receipts, owner routing and offline fallback. The app does not enqueue a second copy or replay deliveries. Native routine context appears as an attributed card, and the Bot's follow-up reply stays in its canonical transcript. Original run results remain readable from native cron outputs. Per-routine preferences use native `deliver` and `failure_deliver`. All updates routes both to `bot-chat`; errors only routes results to `local` and failures to `bot-chat`; Never routes both to `local` while execution continues. Changes hold the native job fire fence and reject active claims or pending delivery receipts. Independently configured destinations are preserved. A native metadata marker records ownership, and preferences are read back from actual native routing. Output questions link by native job directory and a verified run-document envelope, never routine names or matching message text. Already-delivered messages remain unchanged. This is not a hosted scheduler and does not promise work while the backend is stopped.
 
 ## Collaboration
 
@@ -57,7 +79,9 @@ The Python bridge imports Hermes' installed cron library and exposes JSON-only c
 
 Group membership and a display transcript live in app metadata. On a user message, members run in order with a bounded recent group context and separate native group conversations. Private Bot Chat history is not added to the group context. The current design has no native group mention router, persistent group worker or cross-process group lock; only one backend should own a data directory.
 
-## Unread conversations
+## Main Bot chat and unread state
+
+Clients request `projection=canonical` to combine private non-cron sessions in one Bot chat. Group execution sessions stay separate. Original session IDs and native history remain intact. Runtime session lookup and the legacy history API keep their existing behavior. The canonical view has its own durable read cursor, validated against the same projection. No messages are copied into an app-owned transcript.
 
 The app reads native active assistant messages from visible, non-cron sessions.
 It joins compressed session titles back to their conversation and excludes group
