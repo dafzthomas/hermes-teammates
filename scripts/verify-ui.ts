@@ -28,6 +28,7 @@ const fixture = http.createServer(async (req, res) => {
     'UI_QUESTION_PROOF',
     'UI_APPROVAL_PROOF',
     'UI_STOP_PROOF',
+    'UI_LEGACY_QUESTION_PROOF',
     'UI_DESKTOP_QUESTION_PROOF',
     'UI_PROACTIVE_QUESTION_PROOF',
   ]) {
@@ -107,28 +108,74 @@ await new Promise<void>((resolve, reject) => {
 });
 const appUrl = `http://127.0.0.1:${address.port}`;
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
 const errors: string[] = [];
 page.on('pageerror', (error) => errors.push(error.message));
 try {
   await page.goto(`http://127.0.0.1:${address.port}`);
-  await expect(page.getByText('Hermes connected', { exact: true })).toBeVisible({ timeout: 30000 });
   await expect(page.getByText('Meet Hermes.', { exact: true })).toBeVisible({ timeout: 30000 });
+  await expect(page.getByRole('button', { name: 'Show Bot details', exact: true })).toBeVisible({
+    timeout: 30000,
+  });
+  await expect(page.locator('.details-panel')).toHaveCount(0);
+  expect(
+    (await page.locator('.chat-header, .composer-area, .sidebar').allInnerTexts()).join(' '),
+  ).not.toMatch(/Hermes connected|Powered by Hermes|claude-sonnet/);
+  await page.getByRole('button', { name: /Your workspace/ }).click();
+  const workspaceDialog = page.getByRole('dialog');
+  await expect(workspaceDialog.locator('details.advanced')).not.toHaveAttribute('open');
+  await expect(workspaceDialog.getByText('Runtime diagnostics', { exact: true })).not.toBeVisible();
+  await workspaceDialog.locator('details.advanced > summary').click();
+  await expect(workspaceDialog.getByText('Local runtime available', { exact: true })).toBeVisible({
+    timeout: 30000,
+  });
+  await workspaceDialog.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'New Bot', exact: true }).click();
   const dialog = page.getByRole('dialog');
+  const advanced = dialog.locator('details.advanced');
+  await expect(advanced).not.toHaveAttribute('open');
+  await expect(dialog.getByLabel('Model access')).not.toBeVisible();
+  await expect(dialog.getByText(/Model access must be set up/)).toBeVisible();
+  const defaults = await dialog
+    .locator('form')
+    .evaluate((form) => Object.fromEntries(new FormData(form as HTMLFormElement)));
+  expect(defaults.providerKind).toBe('claude');
+  expect(defaults.model).toBe('claude-sonnet-4-6');
+  expect(defaults.borrowLogin).toBeUndefined();
   await dialog.getByLabel('Name', { exact: true }).fill('Researcher');
   await dialog
     .getByLabel('What should this Bot do?')
     .fill(
       'Find primary sources, check claims, and prepare a linked research brief. Ask before contacting anyone.',
     );
+  await advanced.locator('summary').click();
+  await expect(dialog.getByLabel('Use my existing Claude Code login')).not.toBeChecked();
+  await dialog.getByLabel('Model', { exact: true }).fill('');
+  await advanced.locator('summary').click();
+  await dialog.getByRole('button', { name: 'Create Bot', exact: true }).click();
+  await expect(advanced).toHaveAttribute('open');
+  await expect(dialog.getByLabel('Model', { exact: true })).toBeFocused();
   await dialog.getByLabel('Model access').selectOption('compatible');
   await dialog.getByLabel('Model', { exact: true }).fill('ui-fixture');
   await dialog.getByLabel('API base URL').fill(`http://127.0.0.1:${endpoint.port}/v1`);
+  await advanced.locator('summary').click();
+  const retained = await dialog
+    .locator('form')
+    .evaluate((form) => Object.fromEntries(new FormData(form as HTMLFormElement)));
+  expect(retained.providerKind).toBe('compatible');
+  expect(retained.model).toBe('ui-fixture');
+  expect(retained.baseUrl).toBe(`http://127.0.0.1:${endpoint.port}/v1`);
+  await advanced.locator('summary').click();
+  await expect(dialog.getByLabel('Model', { exact: true })).toHaveValue('ui-fixture');
+  await expect(dialog.getByLabel('API base URL')).toHaveValue(
+    `http://127.0.0.1:${endpoint.port}/v1`,
+  );
+  await advanced.locator('summary').click();
   await dialog.getByRole('button', { name: 'Create Bot', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Meet Researcher.' })).toBeVisible({
     timeout: 30000,
   });
+  await page.getByRole('button', { name: 'Show Bot details', exact: true }).click();
   await page.getByRole('button', { name: 'Credentials Add access' }).click();
   await page.locator('.panel-content').getByRole('button', { name: 'Add', exact: true }).click();
   await dialog.getByLabel('Name', { exact: true }).fill('OPENAI_API_KEY');
@@ -176,6 +223,82 @@ try {
   await dialog.getByLabel('When to run').fill('every 24h');
   await dialog.getByRole('button', { name: 'Create routine', exact: true }).click();
   await expect(page.getByRole('button', { name: /^Weekly source review/ })).toBeVisible();
+  const routineBot = snapshotSchema
+    .parse(await (await page.request.get(`${appUrl}/api/state`)).json())
+    .bots.find((b) => b.name === 'Researcher')!;
+  const routineDetail = await (
+    await page.request.get(`${appUrl}/api/bots/${routineBot.id}`)
+  ).json();
+  const weekly = routineDetail.routines.find(
+    (r: { name: string }) => r.name === 'Weekly source review',
+  );
+  const outputDir = path.join(
+    data,
+    'hermes',
+    'profiles',
+    routineBot.id,
+    'cron',
+    'output',
+    weekly.id,
+  );
+  fs.mkdirSync(outputDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(outputDir, '2026-10-25_12-00-00.md'),
+    `# Cron Job: Weekly source review\n\n**Job ID:** ${weekly.id}\n**Run Time:** 2026-10-25T12:00:00Z\n**Schedule:** every 24h\n\n## Prompt\n\nReview sources.\n\n## Response\n\nThe first source review is ready.`,
+  );
+  const preferenceQuestion = page
+    .locator('.transcript')
+    .getByRole('form', { name: 'Weekly source review updates' });
+  await expect(preferenceQuestion).toContainText('The first source review is ready.', {
+    timeout: 15000,
+  });
+  await expect(preferenceQuestion.getByRole('button', { name: 'Save preference' })).toBeDisabled();
+  await expect(preferenceQuestion).not.toContainText('Job ID:');
+  await preferenceQuestion.getByRole('button', { name: 'Choose which updates matter…' }).click();
+  await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+    'For my "Weekly source review" routine, only update me when…',
+  );
+  await page.getByLabel('Message', { exact: true }).fill('');
+
+  await preferenceQuestion.getByRole('radio', { name: 'Never', exact: true }).check();
+  await preferenceQuestion.getByRole('button', { name: 'Save preference' }).click();
+  await expect(preferenceQuestion).toHaveCount(0);
+  await page.reload();
+  await page
+    .getByRole('navigation', { name: 'Bots' })
+    .getByRole('button', { name: /^Researcher/ })
+    .click();
+  await expect(preferenceQuestion).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show Bot details', exact: true }).click();
+  await page.getByRole('button', { name: /^Weekly source review/ }).click();
+  const routineSetting = page
+    .locator('.panel-content')
+    .getByRole('form', { name: 'Weekly source review updates' });
+  await expect(routineSetting.getByRole('radio', { name: 'Never', exact: true })).toBeChecked();
+  await expect(
+    page.locator('.panel-content').getByRole('button', { name: 'Pause', exact: true }),
+  ).toBeVisible();
+  await routineSetting
+    .getByRole('radio', { name: 'Only when something goes wrong', exact: true })
+    .check();
+  await routineSetting.getByRole('button', { name: 'Save preference' }).click();
+  await expect(routineSetting.getByRole('button', { name: 'Save preference' })).toBeDisabled();
+  await expect
+    .poll(async () => {
+      const detail = await (await page.request.get(`${appUrl}/api/bots/${routineBot.id}`)).json();
+      return detail.routines.find((r: { id: string }) => r.id === weekly.id)?.updatePreference;
+    })
+    .toBe('errors');
+  await routineSetting.getByRole('radio', { name: 'Keep all updates', exact: true }).check();
+  await routineSetting.getByRole('button', { name: 'Save preference' }).click();
+  await expect
+    .poll(async () => {
+      const detail = await (await page.request.get(`${appUrl}/api/bots/${routineBot.id}`)).json();
+      return detail.routines.find((r: { id: string }) => r.id === weekly.id)?.updatePreference;
+    })
+    .toBe('all');
+  await page.locator('.panel-tabs').getByRole('button', { name: 'Overview', exact: true }).click();
+
   await page
     .getByLabel('Message', { exact: true })
     .fill('Review the launch brief and tell me what to do next.');
@@ -214,6 +337,7 @@ try {
     .click();
   const questionCard = page.getByRole('region', { name: 'Researcher question' });
   await expect(questionCard).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Show Bot details', exact: true }).click();
   await expect(
     page.getByText(
       'Use primary sources. Keep each brief concise, with links and clear decisions.',
@@ -232,6 +356,16 @@ try {
   await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toHaveCount(0, {
     timeout: 30000,
   });
+  const activity = page.locator('.transcript-activity').filter({ hasText: 'Clarify' }).first();
+  await expect(activity).toBeVisible();
+  await expect(activity.locator('pre')).not.toBeVisible();
+  await activity.locator(':scope > summary').click();
+  const action = activity.locator('.transcript-action').first();
+  await expect(action.locator('summary')).toBeVisible();
+  await expect(action.locator('pre')).not.toBeVisible();
+  await action.locator('summary').click();
+  await expect(action.locator('pre')).toContainText('Which launch color should I use?');
+  await activity.locator(':scope > summary').click();
   await page
     .getByLabel('Message', { exact: true })
     .fill('UI_APPROVAL_PROOF: remove the temporary target.');
@@ -250,12 +384,8 @@ try {
   await page.getByRole('button', { name: 'Stop Bot', exact: true }).click();
   await expect(questionCard).toHaveCount(0, { timeout: 10000 });
   await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Thread', exact: true }).click();
-  await dialog.getByLabel('Thread name').fill('Source checklist');
-  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByText('Source checklist', { exact: true })).toBeVisible();
-  await expect(page.locator('.bubble')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Main conversation', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Thread', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'Conversations' })).toHaveCount(0);
   await expect(
     page.locator('.bubble').filter({ hasText: 'I reviewed the launch brief.' }).first(),
   ).toBeVisible({ timeout: 30000 });
@@ -265,6 +395,8 @@ try {
     .getByRole('button', { name: /^Hermes/ })
     .click();
   await page.getByRole('button', { name: 'Bot settings', exact: true }).click();
+  await expect(advanced).not.toHaveAttribute('open');
+  await advanced.locator('summary').click();
   await dialog.getByLabel('Model access').selectOption('compatible');
   await dialog.getByLabel('Model', { exact: true }).fill('ui-fixture');
   await dialog.getByLabel('API base URL').fill(`http://127.0.0.1:${endpoint.port}/v1`);
@@ -283,7 +415,7 @@ try {
   await page.screenshot({ path: path.join(artifacts, 'group-desktop.png'), fullPage: true });
   // A native scheduled turn asks a question while another conversation is open.
   const snapshot = snapshotSchema.parse(
-    await (await page.request.get(`${appUrl}/api/state`)).json(),
+    await (await page.request.get(`${appUrl}/api/state?projection=canonical`)).json(),
   );
   const researcher = snapshot.bots.find((b) => b.name === 'Researcher');
   if (!researcher) throw new Error('Researcher missing');
@@ -293,7 +425,7 @@ try {
   await expect
     .poll(async () => {
       const state = snapshotSchema.parse(
-        await (await page.request.get(`${appUrl}/api/state`)).json(),
+        await (await page.request.get(`${appUrl}/api/state?projection=canonical`)).json(),
       );
       return state.inbox.conversations
         .filter((c) => c.botId === researcher.id)
@@ -313,7 +445,7 @@ try {
     .poll(
       async () => {
         const state = snapshotSchema.parse(
-          await (await page.request.get(`${appUrl}/api/state`)).json(),
+          await (await page.request.get(`${appUrl}/api/state?projection=canonical`)).json(),
         );
         return state.requests.some((r) => r.botId === researcher.id && r.kind === 'clarify');
       },
@@ -338,18 +470,58 @@ try {
   await page.locator('.routine-delivery summary').click();
   await expect(page.locator('.routine-output')).toBeVisible();
   await page.screenshot({ path: path.join(artifacts, 'proactive-chat.png'), fullPage: true });
-  const threadRun = await page.request.post(`${appUrl}/api/bots/${researcher.id}/messages`, {
+  const legacyRun = await page.request.post(`${appUrl}/api/bots/${researcher.id}/messages`, {
     data: {
       title: 'Source checklist',
-      text: 'Prepare the source checklist in this separate thread.',
+      text: 'UI_LEGACY_QUESTION_PROOF: ask before preparing the source checklist.',
     },
   });
-  expect(threadRun.status()).toBe(202);
-  const threadLink = page.locator('.thread-link').filter({ hasText: 'Source checklist' });
-  await expect(threadLink.locator('.unread-badge')).toHaveText('1', { timeout: 30000 });
-  await threadLink.click();
-  await expect(threadLink.locator('.unread-badge')).toHaveCount(0, { timeout: 15000 });
-  await page.getByRole('button', { name: 'Main conversation', exact: true }).click();
+  expect(legacyRun.status()).toBe(202);
+  await expect(questionCard).toBeVisible({ timeout: 30000 });
+  await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toBeVisible();
+  await expect(page.getByText('Source checklist', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'Conversations' })).toHaveCount(0);
+  await page.reload();
+  await researcherRow.click();
+  await expect(questionCard).toBeVisible({ timeout: 15000 });
+  await questionCard.getByRole('radio', { name: /Green/ }).check();
+  await questionCard.getByRole('button', { name: 'Send answer', exact: true }).click();
+  await expect(questionCard).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toHaveCount(0, {
+    timeout: 30000,
+  });
+  const legacyDetail = await (
+    await page.request.get(`${appUrl}/api/bots/${researcher.id}?title=Source%20checklist`)
+  ).json();
+  expect(legacyDetail.messages.some((m: { role: string }) => m.role === 'assistant')).toBe(true);
+  await expect(researcherRow.locator('.unread-badge')).toHaveCount(0);
+  const mainResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/bots/${researcher.id}/messages`) &&
+      response.request().method() === 'POST',
+  );
+  const mainSend = page.waitForRequest(
+    (request) =>
+      request.url().endsWith(`/bots/${researcher.id}/messages`) && request.method() === 'POST',
+  );
+  await page.getByLabel('Message', { exact: true }).fill('Continue our main chat.');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  expect((await mainSend).postDataJSON().title).toBe('Bot Chat');
+  expect((await mainResponse).status()).toBe(202);
+  await expect
+    .poll(
+      async () => {
+        const state = snapshotSchema.parse(
+          await (await page.request.get(`${appUrl}/api/state?projection=canonical`)).json(),
+        );
+        return state.running.some((run) => run.botId === researcher.id);
+      },
+      { timeout: 30000 },
+    )
+    .toBe(false);
+  await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toHaveCount(0, {
+    timeout: 30000,
+  });
   const launchGroup = snapshot.groups.find((g) => g.name === 'Launch team');
   if (!launchGroup) throw new Error('Launch group missing');
   const groupRun = await page.request.post(`${appUrl}/api/groups/${launchGroup.id}/messages`, {
@@ -365,20 +537,61 @@ try {
   await groupRow.click();
   await expect(groupRow.locator('.unread-badge')).toHaveCount(0, { timeout: 15000 });
 
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 390, height: 650 });
+  await expect(page.locator('.details-panel')).toHaveCount(0);
+  const detailsOpener = page.getByRole('button', { name: 'Show group details', exact: true });
+  await detailsOpener.focus();
+  await page.keyboard.press('Enter');
+  const detailsSheet = page.getByRole('dialog', { name: 'Group details', exact: true });
+  await expect(detailsSheet).toBeVisible();
+  await expect(page.locator('.chat-column')).toHaveAttribute('inert');
+  await detailsSheet.getByRole('button', { name: 'Close details', exact: true }).focus();
+  await page.keyboard.press('Shift+Tab');
+  expect(await detailsSheet.evaluate((sheet) => sheet.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(detailsSheet).toHaveCount(0);
+  await expect(detailsOpener).toBeFocused();
+  await detailsOpener.click();
   await page.getByRole('button', { name: 'Close details', exact: true }).click();
+  await expect(detailsOpener).toBeFocused();
   await expect(page.getByLabel('Message', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Open sidebar', exact: true }).click();
   await page
     .getByRole('navigation', { name: 'Bots' })
     .getByRole('button', { name: /Researcher/ })
     .click();
+  await expect(page.getByRole('button', { name: 'Thread', exact: true })).toHaveCount(0);
+  const composerBox = await page.locator('.composer').boundingBox();
+  expect(composerBox).not.toBeNull();
+  expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(650);
+  const botDetailsOpener = page.getByRole('button', { name: 'Show Bot details', exact: true });
+  await botDetailsOpener.click();
+  await expect(page.getByRole('dialog', { name: 'Bot details', exact: true })).toBeVisible();
+  await expect(page.locator('.sidebar')).not.toHaveClass(/open/);
+  await page.getByRole('button', { name: 'Edit Bot', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Close details', exact: true }).click();
+  await expect(botDetailsOpener).toBeFocused();
+  const sidebarOpener = page.getByRole('button', { name: 'Open sidebar', exact: true });
+  await sidebarOpener.click();
+  await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Close sidebar', exact: true }).click();
+  await expect(sidebarOpener).toBeFocused();
+  await botDetailsOpener.click();
+  await page.setViewportSize({ width: 1440, height: 950 });
+  await expect(page.locator('.sidebar')).not.toHaveAttribute('inert');
+  await page.getByRole('button', { name: 'New Bot', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Create a Bot', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Close details', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 650 });
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth))
     throw new Error('Mobile horizontal overflow');
   await page.screenshot({ path: path.join(artifacts, 'workspace-mobile.png'), fullPage: true });
   expect(errors).toEqual([]);
   console.log(
-    'Browser passed: bot resources, persistent native chat, question recovery after reload, live steering, approval denial, Stop clears cards, routines, threads, two-Bot group, proactive native questions, unread preservation on Computer/reload, thread/group unread separation, read-on-view, mobile layout.',
+    'Browser passed: bot resources, persistent native chat, question recovery after reload, live steering, approval denial, Stop clears cards, routines, canonical Bot chat, legacy request recovery, two-Bot group, proactive native questions, unread preservation on Computer/reload, Bot/group unread separation, read-on-view, mobile layout.',
   );
   await browser.close();
   await stopBackend();
@@ -394,7 +607,7 @@ try {
   });
   try {
     const window = await desktop.firstWindow();
-    await expect(window.getByText('Hermes connected', { exact: true })).toBeVisible({
+    await expect(window.getByRole('heading', { name: 'Meet Hermes.', exact: true })).toBeVisible({
       timeout: 30000,
     });
     await expect(window.getByRole('button', { name: 'New Bot', exact: true })).toBeVisible();
@@ -402,22 +615,52 @@ try {
       .getByRole('navigation', { name: 'Bots' })
       .getByRole('button', { name: /Researcher/ })
       .click();
-    await window
-      .getByLabel('Message', { exact: true })
-      .fill('UI_DESKTOP_QUESTION_PROOF: ask which color to use.');
-    await window.getByRole('button', { name: 'Send message', exact: true }).click();
-    const question = window.getByRole('region', { name: 'Researcher question' });
-    await expect(question).toBeVisible({ timeout: 30000 });
-    await window.screenshot({ path: path.join(artifacts, 'electron-desktop.png') });
-    await question.getByRole('radio', { name: /Green/ }).check();
-    await question.getByRole('button', { name: 'Send answer', exact: true }).click();
-    await expect(question).toHaveCount(0);
-    await expect(window.getByRole('button', { name: 'Stop Bot', exact: true })).toHaveCount(0, {
-      timeout: 30000,
-    });
-    console.log(
-      'Electron passed: native window, persistent gateway, resumed history, real question tool and answer.',
-    );
+    const nativeControls = process.platform === 'darwin';
+    if (nativeControls) {
+      await expect(window.locator('.composer')).toHaveAttribute('data-native-controls', 'active');
+      await expect(window.locator('.chat-header')).toHaveAttribute(
+        'data-native-controls',
+        'active',
+      );
+      console.log('Native desktop controls ready.');
+    }
+    if (!nativeControls || process.env.TEAMMATES_NATIVE_INTERACTIVE === '1') {
+      if (!nativeControls) {
+        await window
+          .getByLabel('Message', { exact: true })
+          .fill('UI_DESKTOP_QUESTION_PROOF: ask which color to use.');
+        await window.getByRole('button', { name: 'Send message', exact: true }).click();
+      } else {
+        fs.writeFileSync(path.join(artifacts, 'native-desktop-ready'), 'ready\n');
+        console.log('Waiting for native input: UI_DESKTOP_QUESTION_PROOF: ask which color to use.');
+      }
+      const question = window.getByRole('region', { name: 'Researcher question' });
+      await expect(question).toBeVisible({ timeout: nativeControls ? 180000 : 30000 });
+      await window.screenshot({ path: path.join(artifacts, 'electron-desktop.png') });
+      await question.getByRole('radio', { name: /Green/ }).check();
+      await question.getByRole('button', { name: 'Send answer', exact: true }).click();
+      await expect(question).toHaveCount(0);
+      await expect(window.locator('.composer')).toBeAttached();
+      await expect
+        .poll(
+          async () => {
+            const response = await window.request.get(
+              new URL('/api/state?projection=canonical', window.url()).href,
+            );
+            const state = await response.json();
+            return state.running.length;
+          },
+          { timeout: 30000 },
+        )
+        .toBe(0);
+      console.log(
+        'Electron passed: persistent gateway, resumed history, real question tool and answer.',
+      );
+    } else {
+      console.log(
+        'Electron passed: resumed history and native AppKit presentation. Native input requires the separate interactive acceptance lane.',
+      );
+    }
   } finally {
     await desktop.close();
   }

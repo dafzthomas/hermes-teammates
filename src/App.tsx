@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import {
   Activity,
   Plug,
@@ -24,7 +33,6 @@ import {
   Square,
   Users,
   X,
-  Zap,
   ExternalLink,
   Play,
   Pause,
@@ -34,6 +42,8 @@ import Markdown from 'react-markdown';
 import { z } from 'zod';
 import { ComputerPanel } from './ComputerPanel';
 import { RequestCard } from './RequestCard';
+import { Transcript } from './Transcript';
+import { useNativeControls } from './nativeControls';
 import { ConnectionFields } from './ConnectionFields';
 import { api } from './api';
 import { VaultPanel } from './VaultPanel';
@@ -46,9 +56,10 @@ import {
   botDetailSchema,
   type Bot,
   type BotDetail,
+  type Routine,
+  type RoutinePreference,
   type Snapshot,
   type Group,
-  type Message,
 } from './domain';
 
 function UnreadBadge({ count = 0 }: { count?: number }) {
@@ -116,6 +127,24 @@ const emptyDetail: BotDetail = {
   routineError: null,
 };
 const colors = ['white', 'violet', 'green', 'orange', 'blue', 'pink'];
+const RuntimeContext = createContext<Snapshot['runtime'] | undefined>(undefined);
+function RuntimeDiagnostics() {
+  const runtime = useContext(RuntimeContext);
+  return (
+    <>
+      <h3>Runtime diagnostics</h3>
+      <p>
+        {runtime
+          ? runtime.available
+            ? 'Local runtime available'
+            : 'Local runtime unavailable'
+          : 'Checking local runtime…'}
+      </p>
+      <pre>{runtime?.version}</pre>
+      {runtime?.error && <pre>{runtime.error}</pre>}
+    </>
+  );
+}
 function ProviderFields({ bot }: { bot?: Bot }) {
   const [kind, setKind] = useState<string>(bot?.provider.kind || 'claude');
   return (
@@ -174,6 +203,96 @@ function ProviderFields({ bot }: { bot?: Bot }) {
   );
 }
 
+function RoutinePreferenceForm({
+  routine,
+  question = false,
+  output,
+  customize,
+  save,
+}: {
+  routine: Routine;
+  question?: boolean;
+  output?: string | null;
+  customize: () => void;
+  save: (preference: RoutinePreference) => Promise<void>;
+}) {
+  const [choice, setChoice] = useState<RoutinePreference | ''>(routine.updatePreference || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const inFlight = useRef(false);
+  useEffect(() => setChoice(routine.updatePreference || ''), [routine.updatePreference]);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!choice || inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await save(choice);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save update preference');
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  }
+  if (!routine.updatePreferenceAvailable) return null;
+  return (
+    <form
+      className={question ? 'routine-update-card request-card' : 'routine-preference'}
+      aria-label={`${routine.name} updates`}
+      onSubmit={submit}
+    >
+      {question && (
+        <>
+          <strong>{routine.name}</strong>
+          {output && <Markdown>{output}</Markdown>}
+        </>
+      )}
+      <fieldset disabled={saving}>
+        <legend>
+          {question ? `How should I keep you updated on ${routine.name}?` : 'Result updates'}
+        </legend>
+        <div className="routine-update-options">
+          {(
+            [
+              ['all', 'Keep all updates'],
+              ['errors', 'Only when something goes wrong'],
+              ['never', 'Never'],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value}>
+              <input
+                type="radio"
+                name="preference"
+                value={value}
+                checked={choice === value}
+                onChange={() => setChoice(value)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <p className="form-note hint">
+        This routine keeps running with any choice. Never keeps it quiet. You can still find its
+        results in details.
+      </p>
+      <button type="button" disabled={saving} onClick={customize}>
+        Choose which updates matter…
+      </button>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <button disabled={saving || !choice || (!question && choice === routine.updatePreference)}>
+        {saving ? 'Saving…' : 'Save preference'}
+      </button>
+    </form>
+  );
+}
+
 export function App() {
   const [state, setState] = useState<Snapshot>();
   const [surface, setSurface] = useState<'chat' | 'computer'>('chat');
@@ -181,17 +300,36 @@ export function App() {
   const [groupId, setGroupId] = useState<string>();
   const [groupMessages, setGroupMessages] = useState<GroupMessage[]>([]);
   const [detail, setDetail] = useState<BotDetail>(emptyDetail);
-  const [title, setTitle] = useState('Bot Chat');
+  const title = 'Bot Chat';
   const [panel, setPanel] = useState<Panel>('overview');
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [composerFocusRequest, setComposerFocusRequest] = useState(0);
+  const focusTransfer = useRef(0);
   const [pending, setPending] = useState<{ target: string; text: string }>();
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [editor, setEditor] = useState<Editor>();
+  const [editor, setEditorState] = useState<Editor>();
+  const editorOpener = useRef<HTMLElement | null>(null);
+  const setEditor = (value: Editor | undefined) => {
+    if (value) editorOpener.current = document.activeElement as HTMLElement;
+    setEditorState(value);
+  };
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
+  const sheet =
+    sidebarOpen && viewportWidth <= 700
+      ? 'sidebar'
+      : panelOpen && viewportWidth < 1200
+        ? 'details-panel'
+        : undefined;
+  useEffect(() => {
+    const resize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
   const [saving, setSaving] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const bottom = useRef<HTMLDivElement>(null);
@@ -202,14 +340,16 @@ export function App() {
   const readCursors = useRef(new Map<string, string>());
   const bot = state?.bots.find((b) => b.id === selected);
   const group = state?.groups.find((g) => g.id === groupId);
-  const running = state?.running.find((r) => r.botId === selected && r.title === title);
+  const botRunning = state?.running.find((r) => r.botId === selected);
+  const running = botRunning?.title === title ? botRunning : undefined;
   const groupWorking = group && state?.running.some((r) => group.members.includes(r.botId));
-  const active = group ? groupWorking : running;
+  const active = group ? groupWorking : botRunning;
   const requests =
     state?.requests.filter((request) =>
       group
         ? group.members.includes(request.botId) && request.title === `Group ${group.id}`
-        : request.botId === selected && request.title === title,
+        : request.botId === selected &&
+          !state?.groups.some((g) => request.title === `Group ${g.id}`),
     ) || [];
   const notify = (text: string) => {
     setNotice(text);
@@ -218,7 +358,7 @@ export function App() {
 
   const refreshState = useCallback(async () => {
     try {
-      setState(snapshotSchema.parse(await api('/state')));
+      setState(snapshotSchema.parse(await api('/state?projection=canonical')));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Cannot reach the app');
     }
@@ -235,7 +375,7 @@ export function App() {
         }
       } else {
         const data = botDetailSchema.parse(
-          await api(`/bots/${current.selected}?title=${encodeURIComponent(current.title)}`),
+          await api(`/bots/${current.selected}?projection=canonical`),
         );
         if (gen === generation.current) {
           loadedContext.current = `bot:${current.selected}:${current.title}`;
@@ -306,7 +446,7 @@ export function App() {
       readCursors.current.set(key, messageId);
       void api(
         groupId ? `/groups/${groupId}/read` : `/bots/${selected}/read`,
-        groupId ? { messageId } : { title, messageId },
+        groupId ? { messageId } : { title, messageId, projection: 'canonical' },
       )
         .then(refreshState)
         .catch(() => {
@@ -353,19 +493,93 @@ export function App() {
         event.preventDefault();
         setSearchOpen(true);
       }
-      if (event.key === 'Escape') {
-        setEditor(undefined);
-        setSidebarOpen(false);
-      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const hasEditor = Boolean(editor);
+  const savingRef = useRef(saving);
+  savingRef.current = saving;
+  useEffect(() => {
+    if (!sheet) return;
+    const opener = document.activeElement as HTMLElement;
+    const transfer = focusTransfer.current;
+    return () => {
+      requestAnimationFrame(() => {
+        if (transfer === focusTransfer.current && opener?.isConnected && !opener.closest('[inert]'))
+          opener.focus();
+      });
+    };
+  }, [sheet]);
+  useEffect(() => {
+    const targets: [string, boolean][] = [
+      [
+        '.sidebar',
+        hasEditor || sheet === 'details-panel' || (viewportWidth <= 700 && !sidebarOpen),
+      ],
+      ['.chat-column', hasEditor || Boolean(sheet)],
+      ['.details-panel', hasEditor || sheet === 'sidebar'],
+      ['.sheet-backdrop', hasEditor],
+    ];
+    for (const [selector, inert] of targets) {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (element) element.inert = inert;
+    }
+  }, [hasEditor, sheet, viewportWidth, sidebarOpen, panelOpen]);
+  useEffect(() => {
+    if (!hasEditor && !sheet) return;
+    const container = document.querySelector<HTMLElement>(hasEditor ? '.modal' : `.${sheet}`);
+    if (!container) return;
+    const opener = hasEditor ? editorOpener.current : null;
+    const focusable = () =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), summary, [tabindex="0"]',
+        ),
+      ).filter((element) => {
+        if (!element.getClientRects().length) return false;
+        const closed = element.closest('details:not([open])');
+        return !closed || element === closed.querySelector('summary');
+      });
+    if (!container.contains(document.activeElement)) focusable()[0]?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (hasEditor) {
+          if (!savingRef.current) setEditorState(undefined);
+        } else {
+          setPanelOpen(false);
+          setSidebarOpen(false);
+        }
+      }
+      if (event.key === 'Tab') {
+        const items = focusable();
+        const first = items[0];
+        const last = items.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', keydown);
+    return () => {
+      document.removeEventListener('keydown', keydown);
+      if (opener)
+        requestAnimationFrame(() => {
+          if (opener.isConnected && !opener.closest('[inert]')) opener.focus();
+        });
+    };
+  }, [hasEditor, sheet]);
+
   const selectBot = (id: string) => {
     setSelected(id);
+    setSurface('chat');
     setGroupId(undefined);
-    setTitle('Bot Chat');
     setPanel('overview');
     setSidebarOpen(false);
     setPending(undefined);
@@ -376,7 +590,7 @@ export function App() {
     await refreshDetail();
     notify(text);
   };
-  function botEditor(existing?: Bot) {
+  function botEditor(existing?: Bot, advanced = false) {
     setEditor({
       title: existing ? 'Bot settings' : 'Create a Bot',
       body: (
@@ -412,7 +626,14 @@ export function App() {
               ))}
             </select>
           </label>
-          <ProviderFields bot={existing} />
+          <p className="form-note">
+            Model access must be set up before the first reply. Open Advanced to configure access;
+            saved settings do not confirm a working connection.
+          </p>
+          <details className="advanced" open={advanced}>
+            <summary>Advanced</summary>
+            <ProviderFields bot={existing} />
+          </details>
         </>
       ),
       submit: async (data) => {
@@ -707,13 +928,17 @@ export function App() {
   async function submitEditor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editor) return;
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     setSaving(true);
     setError('');
     try {
       await editor.submit(data);
       setEditor(undefined);
     } catch (e) {
+      form.querySelectorAll<HTMLDetailsElement>('details.advanced').forEach((section) => {
+        section.open = true;
+      });
       setError(e instanceof Error ? e.message : 'Could not save');
     } finally {
       setSaving(false);
@@ -731,8 +956,120 @@ export function App() {
   }
   const showPanel = (value: Panel) => {
     setPanel(value);
+    setSidebarOpen(false);
     setPanelOpen(true);
   };
+  function workspaceEditor(advanced = false) {
+    setEditor({
+      title: 'Your workspace',
+      body: (
+        <>
+          <p>Your Bots keep their own conversations, memory, files and tools.</p>
+          <p className="form-note">
+            Local tools use your OS account. Separate Bot profiles are not a security sandbox.
+          </p>
+          <details className="advanced" open={advanced}>
+            <summary>Advanced</summary>
+            <RuntimeDiagnostics />
+            <h3>About this workspace</h3>
+            <p>
+              Teammates is an open source interface for Hermes agents. Hermes runs conversations,
+              memory, skills and routines in separate profiles.
+            </p>
+            <a
+              className="text-link"
+              href="https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Hermes Bot Mode documentation <ExternalLink size={13} />
+            </a>
+          </details>
+        </>
+      ),
+      submit: async () => {},
+      button: 'Done',
+    });
+  }
+  const customizeRoutine = (name: string) => {
+    focusTransfer.current++;
+    setComposerFocusRequest((current) => current + 1);
+    setDraft(
+      (current) =>
+        `${current ? `${current}\n\n` : ''}For my "${name}" routine, only update me when…`,
+    );
+    setSurface('chat');
+    setPanelOpen(false);
+  };
+  const nativeNavigation = useRef<HTMLElement>(null);
+  const nativeComposer = useRef<HTMLFormElement>(null);
+  const focusedComposerRequest = useRef(0);
+  useEffect(() => {
+    if (
+      !composerFocusRequest ||
+      focusedComposerRequest.current === composerFocusRequest ||
+      sheet ||
+      editor ||
+      surface !== 'chat'
+    )
+      return;
+    const frame = requestAnimationFrame(() => {
+      focusedComposerRequest.current = composerFocusRequest;
+      if (!nativeComposer.current?.hasAttribute('data-native-controls'))
+        nativeComposer.current?.querySelector('textarea')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [composerFocusRequest, sheet, editor, surface]);
+  const stopCurrent = () => {
+    const ids = group ? group.members : [selected];
+    for (const id of ids) void api(`/bots/${id}/stop`, {}).catch((e) => setError(e.message));
+  };
+  useNativeControls({
+    enabled: Boolean(state && !editor && !sheet),
+    scopeId: group ? `group:${group.id}` : `bot:${selected}`,
+    navigationRef: nativeNavigation,
+    composerRef: nativeComposer,
+    navigation: {
+      title: group?.name || bot?.name || 'Bot',
+      avatarColor: bot?.color,
+      group: Boolean(group),
+      subtitle: group ? `${group.members.length} Bots` : botRunning?.activity || 'Chat',
+      backVisible: viewportWidth <= 700,
+      backLabel: 'Open sidebar',
+      detailsVisible: true,
+      detailsLabel: `${panelOpen ? 'Hide' : 'Show'} ${group ? 'group' : 'Bot'} details`,
+      selectedSurface: surface,
+      computerVisible: !group && Boolean(bot),
+      settingsVisible: !group && Boolean(bot),
+    },
+    composer: {
+      draft,
+      focusRequest: composerFocusRequest,
+      placeholder:
+        running && !group
+          ? `Steer ${bot?.name} while it works…`
+          : `Message ${group?.name || bot?.name || 'Bot'}…`,
+      disabled: false,
+      submitDisabled:
+        !draft.trim() || !state?.runtime.available || Boolean(active && (group || !running)),
+      submitLabel: running && !group ? 'Steer Bot' : 'Send message',
+      stopVisible: Boolean(active),
+      stopDisabled: false,
+      stopLabel: 'Stop Bot',
+      attachmentVisible: true,
+      attachmentLabel: 'Add a text file',
+    },
+    onDraftChange: setDraft,
+    onBack: () => setSidebarOpen(true),
+    onDetails: () => {
+      setSidebarOpen(false);
+      setPanelOpen(!panelOpen);
+    },
+    onStop: stopCurrent,
+    onSurfaceChange: setSurface,
+    onSettings: () => botEditor(bot),
+    onAttachment: () => fileInput.current?.click(),
+  });
   const visibleBots =
     state?.bots.filter((b) => `${b.name} ${b.role}`.toLowerCase().includes(query.toLowerCase())) ||
     [];
@@ -744,41 +1081,44 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+      {sheet && (
+        <button
+          className="sheet-backdrop"
+          tabIndex={-1}
+          aria-label="Close navigation"
+          onClick={() => {
+            setPanelOpen(false);
+            setSidebarOpen(false);
+          }}
+        />
+      )}
+      <aside
+        className={`sidebar ${sidebarOpen ? 'open' : ''}`}
+        role={sheet === 'sidebar' ? 'dialog' : undefined}
+        aria-modal={sheet === 'sidebar' ? true : undefined}
+        aria-label="Workspace navigation"
+      >
         <div className="brand">
-          <span className="brand-mark">h</span>
+          <IconButton
+            className="sidebar-close"
+            label="Close sidebar"
+            onClick={() => setSidebarOpen(false)}
+          >
+            <X size={18} />
+          </IconButton>
           <span>Teammates</span>
-          <span className="open-source">local</span>
-        </div>
-        <div className="sidebar-actions">
-          <button onClick={() => botEditor()}>
+          <IconButton className="sidebar-new" label="New Bot" onClick={() => botEditor()}>
             <Plus size={17} />
-            New Bot
-          </button>
-          <IconButton label="Search Bots" onClick={() => setSearchOpen(!searchOpen)}>
-            <Search size={17} />
           </IconButton>
         </div>
-        {searchOpen && (
-          <div className="search-field">
-            <Search size={15} />
-            <input
-              aria-label="Search Bots"
-              autoFocus
-              placeholder="Search your Bots…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <kbd>⌘K</kbd>
-          </div>
-        )}
         <div className="roster-label">
           Your Bots <span>{state?.bots.length || 0}</span>
         </div>
         <nav className="bot-list" aria-label="Bots">
           {visibleBots.map((b) => {
             const turn = state?.running.find((r) => r.botId === b.id);
-            const conversations = state?.inbox.conversations.filter((c) => c.botId === b.id) || [];
+            const conversations =
+              state?.inbox.conversations.filter((c) => c.botId === b.id && c.title === title) || [];
             const unread = conversations.reduce((sum, c) => sum + c.unread, 0);
             const latest = conversations.toSorted((a, b) => b.at - a.at)[0];
             return (
@@ -837,66 +1177,58 @@ export function App() {
         )}
         <div className="sidebar-footer">
           <MobileDevices />
-          <div className="runtime-state">
-            <span className={state?.runtime.available ? 'dot online' : 'dot'} />
-            <span>{state?.runtime.available ? 'Hermes connected' : 'Connecting to Hermes'}</span>
-            <ShieldCheck size={14} />
+          {searchOpen && (
+            <div className="search-field">
+              <Search size={15} />
+              <input
+                aria-label="Search Bots"
+                autoFocus
+                placeholder="Search your Bots…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <kbd>⌘K</kbd>
+            </div>
+          )}
+          <div className="sidebar-actions">
+            <button
+              className="local-account"
+              aria-label="Your workspace settings and information"
+              title="Your workspace settings and information"
+              onClick={() => workspaceEditor()}
+            >
+              <span className="account-avatar" aria-hidden="true">
+                Y
+              </span>
+            </button>
+            <button
+              className="sidebar-search"
+              aria-label="Search Bots"
+              aria-expanded={searchOpen}
+              onClick={() => setSearchOpen(!searchOpen)}
+            >
+              <Search size={17} />
+              Search
+            </button>
           </div>
-          <button
-            className="local-account"
-            onClick={() =>
-              setEditor({
-                title: 'About this workspace',
-                body: (
-                  <>
-                    <div className="about-logo">
-                      <span className="brand-mark">h</span>Hermes Teammates
-                    </div>
-                    <p>
-                      An original, open source interface for your Hermes agents. Inspired by the
-                      Grok Bot desktop experience.
-                    </p>
-                    <p className="form-note">
-                      {state?.runtime.version || state?.runtime.error}
-                      <br />
-                      Memory, skills and credentials live in separate Hermes profiles. Local tool
-                      execution uses your OS account and is not a security sandbox.
-                    </p>
-                    <a
-                      className="text-link"
-                      href="https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Hermes Bot Mode documentation <ExternalLink size={13} />
-                    </a>
-                  </>
-                ),
-                submit: async () => {},
-                button: 'Done',
-              })
-            }
-          >
-            <span className="account-avatar">Y</span>
-            <span>
-              Your workspace<small>On this computer</small>
-            </span>
-            <Settings2 size={16} />
-          </button>
         </div>
       </aside>
       <main className="chat-column">
-        <header className="chat-header">
+        <header className="chat-header" ref={nativeNavigation}>
           <IconButton
             className="mobile-menu"
             label="Open sidebar"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={() => {
+              setPanelOpen(false);
+              setSidebarOpen(!sidebarOpen);
+            }}
           >
             <Menu size={20} />
           </IconButton>
           <button
             className="chat-identity"
             onClick={() => {
+              setSidebarOpen(false);
               setPanelOpen(!panelOpen);
               setPanel('overview');
             }}
@@ -909,8 +1241,8 @@ export function App() {
               bot && <Face bot={bot} />
             )}
             <span>
-              <strong>{group?.name || bot?.name || 'Hermes'}</strong>
-              <small>
+              <strong>{group?.name || bot?.name || 'Bot'}</strong>
+              <small className={running ? 'bot-activity' : undefined}>
                 {group
                   ? `${group.members.length} Bots in this conversation`
                   : running
@@ -941,64 +1273,31 @@ export function App() {
           <div className="chat-header-actions">
             {!group && (
               <>
-                <button
-                  className="thread-button"
-                  onClick={() =>
-                    setEditor({
-                      title: 'Start a thread',
-                      body: (
-                        <>
-                          <label>
-                            Thread name
-                            <input
-                              name="title"
-                              required
-                              autoFocus
-                              placeholder="A separate piece of work"
-                              maxLength={70}
-                            />
-                          </label>
-                          <p className="form-note">
-                            Threads keep their own conversation while using this Bot’s memory, files
-                            and skills.
-                          </p>
-                        </>
-                      ),
-                      submit: async (data) => {
-                        setTitle(String(data.get('title')));
-                      },
-                    })
-                  }
-                >
-                  <Plus size={15} />
-                  <span>Thread</span>
-                </button>
                 <IconButton label="Bot settings" onClick={() => botEditor(bot)}>
                   <Settings2 size={18} />
                 </IconButton>
               </>
             )}
-            <IconButton
-              label={panelOpen ? 'Hide Bot details' : 'Show Bot details'}
-              onClick={() => setPanelOpen(!panelOpen)}
+            <button
+              className="details-toggle"
+              aria-label={`${panelOpen ? 'Hide' : 'Show'} ${group ? 'group' : 'Bot'} details`}
+              aria-expanded={panelOpen}
+              aria-controls="bot-details"
+              onClick={() => {
+                setSidebarOpen(false);
+                setPanelOpen(!panelOpen);
+              }}
             >
-              <MoreHorizontal size={21} />
-            </IconButton>
+              <span>Details</span>
+              <MoreHorizontal size={21} aria-hidden="true" />
+            </button>
           </div>
         </header>
-        {title !== 'Bot Chat' && !group && (
-          <div className="thread-banner">
-            <button onClick={() => setTitle('Bot Chat')}>
-              <ChevronLeft size={14} />
-              Main conversation
-            </button>
-            <span>{title}</span>
-          </div>
-        )}
-        {!state?.runtime.available && (
+        {state && !state.runtime.available && (
           <div className="runtime-banner">
             <CircleHelp size={16} />
-            <span>{state?.runtime.error || 'Checking the Hermes runtime…'}</span>
+            <span>The local runtime is unavailable. Your Bots cannot reply yet.</span>
+            <button onClick={() => workspaceEditor(true)}>View diagnostics</button>
           </div>
         )}
         {surface === 'computer' && bot && !group ? (
@@ -1039,35 +1338,45 @@ export function App() {
                       </button>
                     ))}
                   </div>
+                  {!group && bot && (
+                    <div className="welcome-access">
+                      <button onClick={() => botEditor(bot, true)}>Configure model access</button>
+                      <button onClick={() => showPanel('secrets')}>Add credential</button>
+                    </div>
+                  )}
                   <span className="welcome-note">
                     <ShieldCheck size={13} />
-                    Your conversations stay on this backend. Your model provider receives prompts.
+                    Conversations are saved in this workspace. Your model provider receives prompts.
                   </span>
                 </div>
               ) : null}
-              {group
-                ? groupMessages.map((m) => (
-                    <div
-                      key={m.id}
-                      className={`message-row ${m.name === 'You' ? 'user' : 'assistant'}`}
-                    >
-                      <div className="message-meta">
-                        {m.name}
-                        <time>
-                          {new Date(m.at).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </time>
-                      </div>
-                      <div className="bubble">
-                        <Markdown>{m.text}</Markdown>
-                      </div>
+              {group ? (
+                groupMessages.map((m) => (
+                  <div
+                    key={m.id}
+                    className={`message-row ${m.name === 'You' ? 'user' : 'assistant'}`}
+                  >
+                    <div className="message-meta">
+                      {m.name}
+                      <time>
+                        {new Date(m.at).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </time>
                     </div>
-                  ))
-                : detail.messages.map((m) => (
-                    <TranscriptEntry key={m.id} message={m} botName={bot?.name || 'Bot'} />
-                  ))}
+                    <div className="bubble">
+                      <Markdown>{m.text}</Markdown>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <Transcript
+                  messages={detail.messages}
+                  botName={bot?.name || 'Bot'}
+                  surface="desktop"
+                />
+              )}
               {pending &&
                 pending.target === (group?.id || selected) &&
                 !(group
@@ -1099,6 +1408,29 @@ export function App() {
                   </div>
                 </div>
               )}
+              {!group &&
+                detail.routines
+                  .filter((r) => r.updatePrompt && r.updatePreferenceAvailable)
+                  .map((r) => (
+                    <RoutinePreferenceForm
+                      key={`${selected}:${r.updatePrompt!.id}`}
+                      routine={r}
+                      customize={() => customizeRoutine(r.name)}
+                      question
+                      output={
+                        detail.routineOutputs.find((o) => o.name === r.updatePrompt!.outputName)
+                          ?.response
+                      }
+                      save={async (preference) => {
+                        await api(
+                          `/bots/${selected}/routines/${encodeURIComponent(r.id)}/preference`,
+                          { preference },
+                          'PUT',
+                        );
+                        await refreshDetail();
+                      }}
+                    />
+                  ))}
               {requests.map((request) => (
                 <RequestCard
                   key={request.id}
@@ -1119,7 +1451,7 @@ export function App() {
                   <div>
                     <strong>Something needs attention</strong>
                     <p>{latestError.text}</p>
-                    <button onClick={() => botEditor(bot)}>Review Bot settings</button>
+                    <button onClick={() => botEditor(bot, true)}>Configure model access</button>
                   </div>
                 </div>
               )}
@@ -1139,17 +1471,17 @@ export function App() {
                   <span className="status-pulse" />
                   {group
                     ? 'Your Bots are working'
-                    : `${bot?.name} is ${running?.activity.toLowerCase()}`}
+                    : `${bot?.name} is ${botRunning?.activity.toLowerCase()}`}
                   <button onClick={() => showPanel('activity')}>View activity</button>
                 </div>
               )}
-              <form className="composer" onSubmit={send}>
+              <form className="composer" ref={nativeComposer} onSubmit={send}>
                 <textarea
                   aria-label="Message"
                   placeholder={
                     running && !group
                       ? `Steer ${bot?.name} while it works…`
-                      : `Message ${group?.name || bot?.name || 'Hermes'}…`
+                      : `Message ${group?.name || bot?.name || 'Bot'}…`
                   }
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
@@ -1159,17 +1491,13 @@ export function App() {
                       void send();
                     }
                   }}
-                  rows={2}
+                  rows={viewportWidth <= 700 ? 1 : 2}
                 />
                 <div className="composer-tools">
                   <div>
                     <IconButton label="Add a text file" onClick={() => fileInput.current?.click()}>
                       <Plus size={19} />
                     </IconButton>
-                    <button className="model-label" type="button" onClick={() => botEditor(bot)}>
-                      {bot?.provider.model || 'Model'}
-                      <ChevronDown size={12} />
-                    </button>
                   </div>
                   <div className="send-actions">
                     {active && (
@@ -1177,11 +1505,7 @@ export function App() {
                         type="button"
                         className="send-button stop"
                         aria-label="Stop Bot"
-                        onClick={() => {
-                          if (group)
-                            for (const id of group.members) void api(`/bots/${id}/stop`, {});
-                          else void api(`/bots/${selected}/stop`, {});
-                        }}
+                        onClick={stopCurrent}
                       >
                         <Square size={13} fill="currentColor" />
                       </button>
@@ -1190,7 +1514,9 @@ export function App() {
                       <button
                         className="send-button"
                         aria-label={running ? 'Steer Bot' : 'Send message'}
-                        disabled={!draft.trim() || !state?.runtime.available}
+                        disabled={
+                          !draft.trim() || !state?.runtime.available || Boolean(active && !running)
+                        }
                       >
                         <ArrowUp size={19} />
                       </button>
@@ -1199,7 +1525,7 @@ export function App() {
                 </div>
               </form>
               <div className="composer-caption">
-                <span>Powered by Hermes. Made to be yours.</span>
+                <span>Your model provider receives prompts.</span>
                 <span>
                   {running && !group
                     ? 'Steering arrives with the next tool result'
@@ -1211,7 +1537,13 @@ export function App() {
         )}
       </main>
       {panelOpen && (
-        <aside className="details-panel">
+        <aside
+          id="bot-details"
+          className="details-panel"
+          role={sheet === 'details-panel' ? 'dialog' : undefined}
+          aria-modal={sheet === 'details-panel' ? true : undefined}
+          aria-label={group ? 'Group details' : 'Bot details'}
+        >
           <div className="details-header">
             <span>{group ? 'Group details' : 'Bot details'}</span>
             <IconButton label="Close details" onClick={() => setPanelOpen(false)}>
@@ -1258,7 +1590,7 @@ export function App() {
                         </IconButton>
                       </div>
                       <div className="about-card">{bot.role}</div>
-                      <h3 className="section-title">Setup</h3>
+                      <h3 className="section-title">Resources</h3>
                       <div className="setup-grid">
                         <button onClick={() => showPanel('secrets')}>
                           <KeyRound size={19} />
@@ -1366,42 +1698,21 @@ export function App() {
                           </span>
                         </button>
                       )}
-                      {detail.sessions.some(
-                        (s) =>
-                          s.title.replace(/ #\d+$/, '') !== 'Bot Chat' &&
-                          !state?.groups.some((g) => s.title.startsWith(`Group ${g.id}`)),
-                      ) && (
-                        <>
-                          <h3 className="section-title">Conversations</h3>
-                          {Array.from(
-                            new Set(detail.sessions.map((s) => s.title.replace(/ #\d+$/, ''))),
-                          )
-                            .filter((t) => !state?.groups.some((g) => t === `Group ${g.id}`))
-                            .map((t) => {
-                              const unread =
-                                state?.inbox.conversations.find(
-                                  (c) => c.botId === selected && c.title === t,
-                                )?.unread || 0;
-                              return (
-                                <button
-                                  key={t}
-                                  className={`thread-link ${t === title ? 'selected' : ''}`}
-                                  onClick={() => {
-                                    setTitle(t);
-                                    setSurface('chat');
-                                  }}
-                                >
-                                  <MessageCircle size={14} />
-                                  {t}
-                                  <UnreadBadge count={unread} />
-                                </button>
-                              );
-                            })}
-                        </>
-                      )}
+                      <details className="advanced">
+                        <summary>Advanced</summary>
+                        <button className="text-link" onClick={() => botEditor(bot, true)}>
+                          Configure model access
+                        </button>
+                        <p className="form-note">
+                          Configured model: {bot.provider.model}. Access is not checked here.
+                        </p>
+                        <button className="text-link" onClick={() => workspaceEditor(true)}>
+                          View runtime diagnostics
+                        </button>
+                      </details>
                       <div className="profile-footer">
                         <ShieldCheck size={14} />
-                        <span>Private profile · Hermes runtime</span>
+                        <span>Memory and resources belong to this Bot.</span>
                       </div>
                     </>
                   )}
@@ -1409,8 +1720,7 @@ export function App() {
                     <>
                       <h3>Memory</h3>
                       <p className="panel-description">
-                        These are this Bot’s native Hermes memory files. They carry context into
-                        future conversations.
+                        Saved context for this Bot’s future conversations.
                       </p>
                       {(['MEMORY', 'USER'] as const).map((kind) => (
                         <div className="resource-card" key={kind}>
@@ -1476,8 +1786,8 @@ export function App() {
                         </button>
                       </div>
                       <p className="panel-description">
-                        Reusable SKILL.md instructions, saved in this Bot’s Hermes skills folder.
-                        The Bot can learn new skills as it works.
+                        Reusable instructions saved in this Bot’s skills folder. The Bot can learn
+                        new skills as it works.
                       </p>
                       {detail.skills.map((s) => (
                         <button className="skill-row" key={s.name} onClick={() => skillEditor(s)}>
@@ -1645,6 +1955,19 @@ export function App() {
                               ? `Next: ${new Date(r.next_run_at).toLocaleString()}`
                               : r.state}
                           </small>
+                          <RoutinePreferenceForm
+                            key={`${selected}:${r.id}`}
+                            routine={r}
+                            customize={() => customizeRoutine(r.name)}
+                            save={async (preference) => {
+                              await api(
+                                `/bots/${selected}/routines/${encodeURIComponent(r.id)}/preference`,
+                                { preference },
+                                'PUT',
+                              );
+                              await refreshDetail();
+                            }}
+                          />
                           <div className="routine-controls">
                             <button
                               onClick={() => {
@@ -1787,9 +2110,21 @@ export function App() {
                 <X size={19} />
               </IconButton>
             </div>
-            <form onSubmit={submitEditor}>
+            <form
+              onSubmit={submitEditor}
+              onInvalidCapture={(event) => {
+                const field = event.target as HTMLInputElement;
+                const section = field.closest('details');
+                if (section && !section.open) {
+                  section.open = true;
+                  requestAnimationFrame(() => field.focus());
+                }
+              }}
+            >
               <div className="modal-body">
-                {editor.body}
+                <RuntimeContext.Provider value={state?.runtime}>
+                  {editor.body}
+                </RuntimeContext.Provider>
                 {error && (
                   <div className="inline-error" role="alert">
                     {error}
@@ -1851,62 +2186,6 @@ function GroupDetails({
           Members see messages in this group. Their private memories, files and credentials stay in
           their own profiles. Local tools still run under the same OS account.
         </p>
-      </div>
-    </div>
-  );
-}
-
-function TranscriptEntry({ message: m, botName }: { message: Message; botName: string }) {
-  const handoff = /^Message from 🤖 (.+? \(@[^)]+\)):\s*([\s\S]*)$/.exec(m.content);
-  const routine = /^\[Cronjob "([^"\n]+)" output[^\n]*\]\s*([\s\S]*)$/.exec(m.content);
-  if (m.role === 'user' && routine)
-    return (
-      <details className="tool-card routine-delivery">
-        <summary>
-          <Clock3 size={13} />
-          Routine · {routine[1]}
-          <ChevronDown size={13} />
-        </summary>
-        <div className="routine-output">
-          <Markdown>{routine[2]}</Markdown>
-        </div>
-      </details>
-    );
-  const completion = m.content.startsWith('[IMPORTANT: Background process');
-  if (m.role === 'tool' || completion)
-    return (
-      <details className="tool-card">
-        <summary>
-          {completion || m.toolName === 'message_agent' ? <Users size={13} /> : <Zap size={13} />}
-          {completion
-            ? 'Bot handoff outcome'
-            : m.toolName === 'message_agent'
-              ? 'Bot handoff · dispatch status'
-              : m.toolName || 'Tool result'}
-          <ChevronDown size={13} />
-        </summary>
-        <pre>{m.content}</pre>
-      </details>
-    );
-  return (
-    <div className={`message-row ${m.role === 'user' && !handoff ? 'user' : 'assistant'}`}>
-      <div className="message-meta">
-        {handoff ? (
-          <>
-            <Users size={13} />
-            {handoff[1]}
-          </>
-        ) : m.role === 'user' ? (
-          'You'
-        ) : (
-          botName
-        )}
-        <time>
-          {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </time>
-      </div>
-      <div className="bubble">
-        <Markdown>{handoff ? handoff[2] : m.content}</Markdown>
       </div>
     </div>
   );

@@ -45,6 +45,20 @@ keys or paid developer account are included.
 and [native HTTP documentation](https://capacitorjs.com/docs/apis/http) describe the
 underlying platform prerequisites.
 
+## Chat and platform controls
+
+Each Bot has one main chat. Routine results return there, with a per-routine question
+after the first useful result. Keep all updates delivers results and failures. Only
+when something goes wrong delivers failures. Never keeps the routine running silently.
+These choices can be changed in Bot details; results remain available there. Choose
+which updates matter appends a named-routine request to the draft for editing.
+
+On iOS 26 and later, navigation and the composer use actual UIKit controls with
+`UIGlassEffect`. Earlier iOS versions and Reduce Transparency use native opaque
+controls. The transcript and settings remain shared web views. Android keeps its web
+controls with system fonts and touch targets. Model and Hermes configuration stay
+under Advanced.
+
 ## Connect to your host
 
 The desktop HTTP listener remains on `127.0.0.1`. Mobile access is a separate,
@@ -113,6 +127,14 @@ returns to pairing. Devices have single-owner workspace control, not per-Bot or
 read-only permissions. Do not pair another person's phone as a shared account.
 
 ## Mobile coverage
+
+Open **Bot details → Bot settings → Advanced** to configure model access.
+Named model credentials are under **Bot details → Advanced**. Model setup remains
+on the host; saving a Bot does not verify that its provider can reply.
+
+Conversation activity groups keep tool output collapsed. Expand the group and an
+individual action to inspect the recorded result. Teammate messages retain their
+sender, and questions, approvals, and Stop remain visible during work.
 
 | Desktop capability                                   | Mobile coverage                                                                         |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------- |

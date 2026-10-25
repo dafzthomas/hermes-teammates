@@ -5,6 +5,17 @@ A version in `package.json` does not imply a signed binary release or an npm pac
 
 ## Unreleased
 
+### Changed
+
+- Native AppKit and UIKit navigation and composers use Liquid Glass on macOS 26 and iOS 26, with native opaque controls for earlier systems and Reduce Transparency.
+- Desktop conversations use a compact roster, toolbar and growing single-line composer, with an optional Details panel.
+- Each Bot has one main chat. Background sessions and old private conversations appear there without thread management.
+- Routines ask about future updates after their first useful result. Preferences apply per routine, and Never keeps the routine running silently.
+- Bot model access and runtime diagnostics move behind Advanced controls.
+- Larger text, clearer navigation, and a simpler composer make everyday Bot tasks easier to follow.
+- Phone layouts use a charcoal canvas, rounded conversation bubbles, a compact pill composer, and larger Bot avatars.
+- Tool results use compact, expandable activity groups with individual action output and attributed teammate handoffs.
+
 ### Added
 
 - Installable Capacitor iOS/Android clients with phone navigation, Bot and group
@@ -16,7 +27,7 @@ A version in `package.json` does not imply a signed binary release or an npm pac
   workspace files, credentials, and conversations.
 - Claude through Hermes' Anthropic provider and configurable OpenAI-compatible
   Chat Completions endpoints, including local Ollama.
-- Native Bot-to-Bot messaging, shared group conversations, separate threads,
+- Native Bot-to-Bot messaging, shared group conversations,
   durable unread state, and reply previews.
 - Native cron routines, saved results, Bot Chat delivery, and live autonomous
   questions, approval cards, steering, and Stop.

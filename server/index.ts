@@ -8,6 +8,7 @@ import { z } from 'zod';
 import {
   botInputSchema,
   routineSchema,
+  routinePreferenceSchema,
   requestResponseSchema,
   connectionInputSchema,
 } from '../src/domain';
@@ -154,11 +155,14 @@ export function createApp(dataRoot: string) {
       clearInterval(timer);
     });
   });
-  app.get('/api/state', (_req, res) =>
+  app.get('/api/state', (req, res) =>
     res.json({
       bots: store.state.bots,
       groups: store.state.groups,
-      inbox: store.inbox(),
+      inbox: store.inbox(
+        z.enum(['conversation', 'canonical']).parse(req.query.projection || 'conversation') ===
+          'canonical',
+      ),
       requests: [
         ...[...hermes.requests.values()].map((request) => request.view),
         ...connections.views(),
@@ -174,9 +178,13 @@ export function createApp(dataRoot: string) {
   );
   app.post('/api/bots/:id/read', (req, res) => {
     const body = z
-      .object({ title: z.string().min(1).max(100), messageId: z.string().min(1).max(250) })
+      .object({
+        title: z.string().min(1).max(100),
+        messageId: z.string().min(1).max(250),
+        projection: z.enum(['conversation', 'canonical']).default('conversation'),
+      })
       .parse(req.body);
-    store.acknowledge(req.params.id, body.title, body.messageId);
+    store.acknowledge(req.params.id, body.title, body.messageId, body.projection === 'canonical');
     changed();
     res.json({ ok: true });
   });
@@ -215,6 +223,8 @@ export function createApp(dataRoot: string) {
           .string()
           .max(100)
           .parse(req.query.title || 'Bot Chat'),
+        z.enum(['conversation', 'canonical']).parse(req.query.projection || 'conversation') ===
+          'canonical',
       ),
       memory: store.memory(id, 'MEMORY'),
       userMemory: store.memory(id, 'USER'),
@@ -222,9 +232,8 @@ export function createApp(dataRoot: string) {
       files: store.files(id),
       secrets: Object.keys(store.secretEntries(id)),
       connections: connections.list(id),
-      routines,
+      ...store.routineDetails(id, routines),
       routineError,
-      routineOutputs: store.outputs(id),
       activity: store.state.activity.filter((a) => a.botId === id).slice(-100),
     });
   });
@@ -469,6 +478,32 @@ export function createApp(dataRoot: string) {
       })
       .parse(req.body);
     res.json(await hermes.routines(req.params.id, 'create', body));
+  });
+  app.put('/api/bots/:id/routines/:routineId/preference', async (req, res) => {
+    const { preference } = z
+      .object({ preference: routinePreferenceSchema })
+      .strict()
+      .parse(req.body);
+    store.bot(req.params.id);
+    const routines = z.array(routineSchema).parse(await hermes.routines(req.params.id, 'list'));
+    const routine = routines.find((r) => r.id === req.params.routineId);
+    if (!routine) return res.status(404).json({ error: 'Routine not found for this Bot.' });
+    let updated: z.infer<typeof routineSchema>;
+    try {
+      updated = routineSchema.parse(
+        await hermes.routines(req.params.id, 'preference', {
+          id: routine.id,
+          preference,
+        }),
+      );
+    } catch (error) {
+      return res.status(409).json({
+        error: error instanceof Error ? error.message : 'Cannot change routine delivery.',
+      });
+    }
+    store.setRoutinePreference(req.params.id, routine.id, preference);
+    changed();
+    res.json(store.routineDetails(req.params.id, [updated]).routines[0]);
   });
   app.post('/api/bots/:id/routines/:routineId/:action', async (req, res) => {
     const action = z.enum(['pause', 'resume', 'remove']).parse(req.params.action);

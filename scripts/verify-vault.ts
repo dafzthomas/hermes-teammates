@@ -83,7 +83,16 @@ try {
     backend.once('error', reject);
   });
   await page.goto(url);
-  await expect(page.getByText('Hermes connected', { exact: true })).toBeVisible({ timeout: 30000 });
+  await expect
+    .poll(
+      async () => (await (await page.request.get(`${url}/api/state`)).json()).runtime.available,
+      { timeout: 30000 },
+    )
+    .toBe(true);
+  await expect(page.getByRole('button', { name: 'Show Bot details', exact: true })).toBeVisible({
+    timeout: 30000,
+  });
+  await page.getByRole('button', { name: 'Show Bot details', exact: true }).click();
   await page.getByRole('button', { name: /Credentials .*saved/ }).click();
   await page.getByRole('button', { name: 'Add login', exact: true }).click();
   const dialog = page.getByRole('dialog');
@@ -97,6 +106,7 @@ try {
   await dialog.getByRole('button', { name: 'Save login', exact: true }).click();
   await expect(page.locator('.vault-item')).toContainText('Project account');
   await page.reload();
+  await page.getByRole('button', { name: 'Show Bot details', exact: true }).click();
   await page.getByRole('button', { name: /Credentials .*saved/ }).click();
   await expect(page.locator('.vault-item')).toContainText('Project account');
   expect(await page.locator('body').innerText()).not.toContain('synthetic-settings-password');
@@ -220,7 +230,9 @@ try {
     });
     try {
       const window = await desktop.firstWindow();
-      await expect(window.getByText('Hermes connected', { exact: true })).toBeVisible({
+      await expect(
+        window.getByRole('button', { name: 'Show Bot details', exact: true }),
+      ).toBeVisible({
         timeout: 30000,
       });
       await window

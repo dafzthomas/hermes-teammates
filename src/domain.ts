@@ -80,6 +80,23 @@ export const messageSchema = z.object({
 export type Message = z.infer<typeof messageSchema>;
 export const sessionSchema = z.object({ id: z.string(), title: z.string(), count: z.number() });
 export type Session = z.infer<typeof sessionSchema>;
+export const routinePreferenceSchema = z.enum(['all', 'errors', 'never']);
+export type RoutinePreference = z.infer<typeof routinePreferenceSchema>;
+export const routineUpdatePromptSchema = z.object({
+  id: z.string(),
+  routineId: z.string(),
+  outputName: z.string(),
+});
+export const routineOutputSchema = z.object({
+  name: z.string(),
+  content: z.string(),
+  response: z.string().nullable().default(null),
+  routineId: z.string().nullable().default(null),
+  timestamp: z.number().default(0),
+  outcome: z.enum(['result', 'error', 'silent', 'unknown']).default('unknown'),
+  visibility: z.enum(['shown', 'suppressed']).default('shown'),
+});
+export type RoutineOutput = z.infer<typeof routineOutputSchema>;
 export const routineSchema = z
   .object({
     id: z.string(),
@@ -90,6 +107,9 @@ export const routineSchema = z
     state: z.string().default('scheduled'),
     enabled: z.boolean().default(true),
     last_error: z.string().nullable().default(null),
+    updatePreference: routinePreferenceSchema.nullable().default(null),
+    updatePrompt: routineUpdatePromptSchema.nullable().default(null),
+    updatePreferenceAvailable: z.boolean().default(false),
   })
   .passthrough();
 export type Routine = z.infer<typeof routineSchema>;
@@ -142,7 +162,7 @@ export const botDetailSchema = z.object({
   messages: z.array(messageSchema),
   sessions: z.array(sessionSchema),
   routines: z.array(routineSchema),
-  routineOutputs: z.array(z.object({ name: z.string(), content: z.string() })),
+  routineOutputs: z.array(routineOutputSchema),
   activity: z.array(activitySchema),
   routineError: z.string().nullable(),
 });

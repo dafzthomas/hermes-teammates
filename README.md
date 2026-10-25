@@ -3,7 +3,7 @@
 [![Checks](https://github.com/dafzthomas/hermes-teammates/actions/workflows/ci.yml/badge.svg)](https://github.com/dafzthomas/hermes-teammates/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An original, MIT-licensed desktop and mobile workspace for persistent Hermes agents, inspired by Grok Bot's dark, three-column interface. Hermes runs the agents; this app gives them a roster, conversations and a details panel.
+An original, MIT-licensed desktop and mobile workspace for persistent Hermes agents, inspired by Grok Bot. The desktop opens with your Bot roster and one main chat per Bot. Open **Details** for memory, files, apps, and routines. Technical setup and runtime diagnostics sit behind **Advanced** controls.
 
 ![Compiled Hermes Teammates workspace](docs/screenshot.png)
 
@@ -39,7 +39,7 @@ The [mobile app](docs/mobile.md) connects to your own Hermes backend through an 
 
 ## Model access
 
-Every Bot can choose its own provider in **Bot settings**.
+Every Bot can choose its own provider in **Bot settings → Advanced**. Creating a Bot saves its name and job; model access must be configured before it can reply.
 
 - **Claude through Hermes:** add `ANTHROPIC_API_KEY` in that Bot's Credentials, or explicitly enable reuse of an existing Claude Code login. Hermes owns authentication and billing. Its current provider documentation says Claude Max OAuth requires extra usage credits; do not assume an existing subscription includes these calls. This is Hermes' native Anthropic integration, not a bundled Claude Agent SDK runtime.
 - **OpenAI-compatible API / Ollama:** enter the endpoint's `/v1` base URL and its exact model ID. Add `OPENAI_API_KEY` in that Bot's Credentials if required. Examples include OpenAI Chat Completions and local Ollama or vLLM endpoints. The model must support tool calling for agent workflows. Endpoints that require the Responses API are not supported by this first UI.
@@ -50,20 +50,22 @@ No real model credentials are included. The integration test uses a controlled l
 
 ## Use
 
-1. Open **New Bot**, give it a name and job, and select its model access.
-2. Add the relevant credentials, text files, memory or SKILL.md workflows in Bot details.
+1. Open **New Bot** and give it a name and job. Open **Advanced** to configure model access.
+2. Open **Details** to add credentials, text files, memory, or SKILL.md workflows.
 3. Send a task. The transcript shows replies, tool results, question forms and approval cards; **Activity** shows tools, handoffs and outcomes. Answer a card to continue. While it works, send steering to the next tool result or press **Stop**. Ask a Bot to message a named teammate when a specialist should help.
 4. Create a group with at least two Bots for a shared discussion. Members answer sequentially using their own Hermes profiles.
-5. Create a routine for recurring work. Hermes accepts cron expressions, `every 2h`, or an ISO timestamp. New routines deliver their results into **Bot Chat**, with an attributed routine card and a reply from that Bot. The original output remains in **Routines → Run results**.
+5. Create a routine for recurring work. Hermes accepts cron expressions, `every 2h`, or an ISO timestamp. Its first useful result appears in the Bot's main chat with a question about future updates. Choose **Keep all updates**, **Only when something goes wrong**, or **Never** for that routine. Every choice keeps it running. Change the choice later in **Details → Routines**; original outputs remain in **Run results**. Use **Choose which updates matter** to draft a more specific request to the Bot.
 
-Unread badges on Bots, conversations and groups survive reloads and backend restarts. Opening a focused Chat view marks only the messages it has loaded as read. Viewing the Computer tab does not clear conversation unread state. Existing native routines retain their configured delivery destination; recreate an older local-only routine to opt into Bot Chat delivery.
+Bots have one main chat; you do not create or manage threads or runtime sessions. Existing private history is included there, while group conversations stay separate. Unread badges on Bots and groups survive reloads and backend restarts. Opening a focused Chat view marks only the messages it has loaded as read. Viewing the Computer tab does not clear conversation unread state. Routines with independently configured destinations keep those destinations. Update choices are available for routines created here with delivery to this Bot's chat. A change waits until active runs and pending deliveries have finished; it does not remove messages already delivered.
+
+Tool results appear in compact activity groups. Expand a group to see its actions, then expand an action to read its output. Teammate handoffs keep their attribution. Questions, approvals, and Stop remain directly available while a Bot works.
 
 Routines run while the backend is running. Closing the desktop app quits its backend. Sleeping the computer pauses local work. For an always-on service, run the backend on an awake machine; the optional authenticated mobile gateway is documented in [mobile setup](docs/mobile.md). Service installation remains an operator task.
 
 ## Connected apps and action review
 
-Open **Overview → Apps → Connect app** on a Bot. Add an HTTP MCP endpoint or an
-installed MCP command. For authentication, save the service key in that Bot's
+Open **Details → Apps → Connect app** on a Bot. Open **Advanced** to add an HTTP MCP
+endpoint or an installed MCP command. For authentication, save the service key in that Bot's
 Credentials, then select its name as the HTTP bearer credential or bind it to a
 command environment variable. Arguments and bindings use JSON; for example,
 `["/path/to/server.mjs"]` and `{"APP_TOKEN":"SERVICE_KEY"}`. Hermes owns MCP
@@ -94,7 +96,7 @@ for compatible servers.
 
 ## Website logins
 
-Open **Overview → Credentials → Passwords & logins** to add or remove a login for
+Open **Details → Credentials → Passwords & logins** to add or remove a login for
 one Bot. Enter the exact website, identifier and password, with an optional
 Authenticator setup key for automatic two-factor codes. Hermes stores passwords
 and setup keys in its native encrypted profile vault. Only labels, sites and
@@ -183,6 +185,13 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+On macOS, `npm run desktop` also compiles the AppKit controls using Xcode's command-line
+tools. The build downloads Node headers into ignored `test-artifacts` when needed.
+Set `HERMES_NODE_HEADERS` to an existing `include/node` directory for an offline build.
+`npm run package:desktop` builds the selected Mac architecture through its packaging
+hook. macOS 26 and iOS 26 use genuine native Liquid Glass navigation and composers;
+older Apple systems and Reduce Transparency use native opaque controls.
 
 `npm test` runs store/API checks and, if Hermes is installed, a real Hermes integration with a local inference fixture. It does not test live paid providers. Browser/desktop checks are documented separately.
 

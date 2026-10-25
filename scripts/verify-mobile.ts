@@ -165,17 +165,35 @@ try {
   await dialog
     .getByLabel('Job and instructions')
     .fill('Find reliable sources for the mobile launch.');
+  const modelAdvanced = dialog.locator('details.advanced');
+  await expect(modelAdvanced).not.toHaveAttribute('open');
+  await expect(dialog.getByLabel("Reuse the host's Claude Code login")).not.toBeChecked();
+  await modelAdvanced.getByText('Advanced', { exact: true }).click();
+  await dialog.getByLabel('Model ID').fill('');
+  await modelAdvanced.getByText('Advanced', { exact: true }).click();
+  await dialog.getByRole('button', { name: 'Create Bot', exact: true }).click();
+  await expect(modelAdvanced).toHaveAttribute('open');
   await dialog.getByLabel('Model access').selectOption('compatible');
   await dialog.getByLabel('Model ID').fill('mobile-fixture');
   const snapshot = await local('/api/state');
   const baseUrl = snapshot.bots.find((b: { id: string }) => b.id === 'default').provider.baseUrl;
   await dialog.getByLabel('API base URL').fill(baseUrl);
+  await dialog.getByLabel('Model access').selectOption('claude');
+  await expect(dialog.getByLabel('Model ID')).toHaveValue('mobile-fixture');
+  await expect(dialog.getByLabel("Reuse the host's Claude Code login")).not.toBeChecked();
+  await dialog.getByLabel('Model access').selectOption('compatible');
+  await expect(dialog.getByLabel('API base URL')).toHaveValue(baseUrl);
+  await modelAdvanced.getByText('Advanced', { exact: true }).click();
   await dialog.getByRole('button', { name: 'Create Bot', exact: true }).click();
   await expect(page.getByRole('button', { name: /Mobile researcher Find reliable/ })).toBeVisible();
   await page.screenshot({ path: path.join(artifacts, 'mobile-roster.png') });
   await page.getByRole('button', { name: /Mobile researcher Find reliable/ }).click();
+  const mainSend = page.waitForRequest(
+    (request) => request.url().includes('/messages') && request.method() === 'POST',
+  );
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('MOBILE_QUESTION_BROWSER');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  expect((await mainSend).postDataJSON().title).toBe('Bot Chat');
   await expect(page.getByText('Which launch color should I use?', { exact: true })).toBeVisible({
     timeout: 60000,
   });
@@ -190,6 +208,16 @@ try {
       exact: true,
     }),
   ).toBeVisible({ timeout: 60000 });
+  const activity = page.locator('.transcript-activity').filter({ hasText: 'Clarify' }).first();
+  await expect(activity).toBeVisible();
+  await expect(activity.locator('pre')).not.toBeVisible();
+  await activity.locator(':scope > summary').click();
+  const action = activity.locator('.transcript-action').first();
+  await expect(action.locator('summary')).toBeVisible();
+  await expect(action.locator('pre')).not.toBeVisible();
+  await action.locator('summary').click();
+  await expect(action.locator('pre')).toContainText('Which launch color should I use?');
+  await activity.locator(':scope > summary').click();
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('MOBILE_APPROVAL_BROWSER');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   await expect(page.getByText('Your approval is needed', { exact: true })).toBeVisible({
@@ -255,12 +283,78 @@ try {
   await page.getByRole('button', { name: 'Edit memory', exact: true }).click();
   await expect(page.getByLabel('Bot memory')).toHaveValue('Prefer primary sources.');
   await page.getByRole('button', { name: 'Close form', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Conversations', exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('New conversation')).toHaveCount(0);
   await page.getByRole('button', { name: 'Add routine', exact: true }).click();
   await dialog.getByLabel('Name', { exact: true }).fill('Mobile roundup');
   await dialog.getByLabel('Task', { exact: true }).fill('Review the launch brief.');
   await dialog.getByLabel('Schedule', { exact: true }).fill('every 2h');
   await dialog.getByRole('button', { name: 'Create routine', exact: true }).click();
   await expect(page.getByText('Mobile roundup', { exact: true })).toBeVisible({ timeout: 30000 });
+  const preferenceBot = (await local('/api/state')).bots.find(
+    (b: { name: string }) => b.name === 'Mobile researcher',
+  );
+  const preferenceDetail = await local(`/api/bots/${preferenceBot.id}`);
+  const roundup = preferenceDetail.routines.find(
+    (r: { name: string }) => r.name === 'Mobile roundup',
+  );
+  const outputDir = path.join(
+    fixtureRoot,
+    'data',
+    'hermes',
+    'profiles',
+    preferenceBot.id,
+    'cron',
+    'output',
+    roundup.id,
+  );
+  fs.mkdirSync(outputDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(outputDir, '2026-10-25_12-00-00.md'),
+    `# Cron Job: Mobile roundup\n\n**Job ID:** ${roundup.id}\n**Run Time:** 2026-10-25T12:00:00Z\n**Schedule:** every 2h\n\n## Prompt\n\nReview sources.\n\n## Response\n\nThe mobile roundup is ready.`,
+  );
+  await page.getByRole('button', { name: 'Bot details', exact: true }).click();
+  const preferenceQuestion = page
+    .locator('.transcript')
+    .getByRole('form', { name: 'Mobile roundup updates' });
+  await expect(preferenceQuestion).toContainText('The mobile roundup is ready.', {
+    timeout: 15000,
+  });
+  await expect(preferenceQuestion).not.toContainText('Job ID:');
+  await preferenceQuestion.getByRole('button', { name: 'Choose which updates matter…' }).click();
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+    'For my "Mobile roundup" routine, only update me when…',
+  );
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('');
+  await preferenceQuestion.getByRole('radio', { name: 'Never', exact: true }).check();
+  await preferenceQuestion.getByRole('button', { name: 'Save preference' }).click();
+  await expect(preferenceQuestion).toHaveCount(0);
+  await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
+  await page.getByRole('button', { name: /Mobile researcher Find reliable/ }).click();
+  await expect(preferenceQuestion).toHaveCount(0);
+  await page.getByRole('button', { name: 'Bot details', exact: true }).click();
+  const routineSetting = page
+    .locator('.details')
+    .getByRole('form', { name: 'Mobile roundup updates' });
+  await expect(routineSetting.getByRole('radio', { name: 'Never', exact: true })).toBeChecked();
+  expect(
+    (await local(`/api/bots/${preferenceBot.id}`)).routines.find(
+      (r: { id: string }) => r.id === roundup.id,
+    ).enabled,
+  ).toBe(true);
+  await routineSetting
+    .getByRole('radio', { name: 'Only when something goes wrong', exact: true })
+    .check();
+  await routineSetting.getByRole('button', { name: 'Save preference' }).click();
+  await expect
+    .poll(
+      async () =>
+        (await local(`/api/bots/${preferenceBot.id}`)).routines.find(
+          (r: { id: string }) => r.id === roundup.id,
+        ).updatePreference,
+    )
+    .toBe('errors');
+
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Bot details', exact: true }).click();
@@ -276,6 +370,28 @@ try {
   const researcher = (await local('/api/state')).bots.find(
     (b: { name: string }) => b.name === 'Mobile researcher',
   );
+  await expect
+    .poll(
+      async () =>
+        (await local('/api/state')).running.some(
+          (run: { botId: string }) => run.botId === researcher.id,
+        ),
+      { timeout: 60000 },
+    )
+    .toBe(false);
+  await local(`/api/bots/${researcher.id}/messages`, {
+    title: 'Old research session',
+    text: 'MOBILE_QUESTION_LEGACY',
+  });
+  await page.getByRole('button', { name: 'Activity', exact: true }).click();
+  await page.getByRole('button', { name: /Mobile researcher needs you/ }).click({ timeout: 60000 });
+  await expect(page.getByText('Old research session', { exact: true })).toHaveCount(0);
+  await page.getByLabel('Green (Recommended)', { exact: true }).check();
+  await page.getByRole('button', { name: 'Send answer', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0, {
+    timeout: 60000,
+  });
+  await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
   await local(`/api/bots/${researcher.id}/routines`, {
     name: 'MOBILE_QUESTION_PROACTIVE',
     prompt: 'Review the mobile launch brief.',
@@ -324,8 +440,11 @@ try {
   await desktop.getByRole('button', { name: 'Revoke Browser check', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Connect workspace', exact: true })).toBeVisible();
   process.stdout.write(
-    'Compiled mobile acceptance passed: pairing, roster/create, native question, steering, answer, approval denial, Stop during delayed refresh, resume response ordering, safe memory loading/editing, routine pause, proactive routine question through Activity, group replies, revocation, no overflow/page errors. Native transport is a fixture stand-in in this browser lane.\n',
+    'Compiled mobile acceptance passed: pairing, roster/create, native question, steering, answer, approval denial, Stop during delayed refresh, resume response ordering, safe memory loading/editing, per-routine preference persistence, legacy request recovery, routine pause, proactive routine question through Activity, group replies, revocation, no overflow/page errors. Native transport is a fixture stand-in in this browser lane.\n',
   );
+} catch (error) {
+  console.error('Compiled mobile acceptance failed:', error);
+  throw error;
 } finally {
   await browser?.close();
   if (child && child.exitCode === null && child.signalCode === null) {
@@ -335,5 +454,6 @@ try {
     await stopped;
     clearTimeout(timeout);
   }
-  if (owned) fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  if (owned)
+    fs.rmSync(fixtureRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }

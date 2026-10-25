@@ -26,11 +26,15 @@ import {
 import Markdown from 'react-markdown';
 import { z } from 'zod';
 import { RequestCard } from '../../src/RequestCard';
+import { Transcript } from '../../src/Transcript';
+import { useNativeControls } from '../../src/nativeControls';
 import {
   botDetailSchema,
   snapshotSchema,
   type Bot,
   type BotDetail,
+  type Routine,
+  type RoutinePreference,
   type Snapshot,
 } from '../../src/domain';
 import {
@@ -45,7 +49,8 @@ import {
 const groupSchema = z.array(
   z.object({ id: z.string(), name: z.string(), text: z.string(), at: z.number() }),
 );
-type Target = { kind: 'bot' | 'group'; id: string; title: string };
+type Target = { kind: 'bot' | 'group'; id: string };
+const mainChatTitle = 'Bot Chat';
 const colors = ['white', 'violet', 'green', 'orange', 'blue', 'pink'] as const;
 const editorLabels = {
   new: 'New Bot',
@@ -93,6 +98,96 @@ function Badge({ count }: { count: number }) {
 }
 function errorText(e: unknown) {
   return e instanceof Error ? e.message : 'Could not reach the host. Check your connection.';
+}
+
+function RoutinePreferenceForm({
+  routine,
+  question = false,
+  output,
+  customize,
+  save,
+}: {
+  routine: Routine;
+  question?: boolean;
+  output?: string | null;
+  customize: () => void;
+  save: (preference: RoutinePreference) => Promise<void>;
+}) {
+  const [choice, setChoice] = useState<RoutinePreference | ''>(routine.updatePreference || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const inFlight = useRef(false);
+  useEffect(() => setChoice(routine.updatePreference || ''), [routine.updatePreference]);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!choice || inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await save(choice);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save update preference');
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  }
+  if (!routine.updatePreferenceAvailable) return null;
+  return (
+    <form
+      className={question ? 'routine-update-card request-card' : 'routine-preference'}
+      aria-label={`${routine.name} updates`}
+      onSubmit={submit}
+    >
+      {question && (
+        <>
+          <strong>{routine.name}</strong>
+          {output && <Markdown>{output}</Markdown>}
+        </>
+      )}
+      <fieldset disabled={saving}>
+        <legend>
+          {question ? `How should I keep you updated on ${routine.name}?` : 'Result updates'}
+        </legend>
+        <div className="routine-update-options">
+          {(
+            [
+              ['all', 'Keep all updates'],
+              ['errors', 'Only when something goes wrong'],
+              ['never', 'Never'],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value}>
+              <input
+                type="radio"
+                name="preference"
+                value={value}
+                checked={choice === value}
+                onChange={() => setChoice(value)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <p className="form-note hint">
+        This routine keeps running with any choice. Never keeps it quiet. You can still find its
+        results in details.
+      </p>
+      <button type="button" disabled={saving} onClick={customize}>
+        Choose which updates matter…
+      </button>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <button disabled={saving || !choice || (!question && choice === routine.updatePreference)}>
+        {saving ? 'Saving…' : 'Save preference'}
+      </button>
+    </form>
+  );
 }
 
 export function MobileApp() {
@@ -159,8 +254,8 @@ function PairScreen({
   return (
     <main className="pair-screen">
       <div className="pair-brand">
-        <Face bot={{ name: 'Hermes', color: 'white' }} />
-        <span>Hermes Teammates</span>
+        <Face bot={{ name: 'Teammates', color: 'white' }} />
+        <span>Teammates</span>
       </div>
       <div className="pair-intro">
         <h1>
@@ -168,7 +263,7 @@ function PairScreen({
           <br />
           Wherever you are.
         </h1>
-        <p>Connect to the Hermes workspace running on your own host.</p>
+        <p>Connect to the workspace running on your own host.</p>
       </div>
       <form onSubmit={submit}>
         <label>
@@ -264,7 +359,9 @@ function Workspace({
     state?.running.filter((r) =>
       target?.kind === 'group' ? group?.members.includes(r.botId) : r.botId === target?.id,
     ) || [];
-  const thisRun = running.find((r) => r.title === target?.title);
+  const conversationTitle = target?.kind === 'group' ? `Group ${target.id}` : mainChatTitle;
+  const thisRun =
+    target?.kind === 'bot' ? running.find((r) => r.title === mainChatTitle) : undefined;
   async function api(route: string, body?: unknown, method?: string) {
     return mobileApi(connection, route, body, method);
   }
@@ -281,13 +378,11 @@ function Workspace({
     const selected = latestTarget.current;
     const current = () => mounted.current && foreground.current && version === generation.current;
     try {
-      const snapshot = snapshotSchema.parse(await api('/state'));
+      const snapshot = snapshotSchema.parse(await api('/state?projection=canonical'));
       if (!current()) return;
       setState(snapshot);
       if (selected?.kind === 'bot') {
-        const next = botDetailSchema.parse(
-          await api(`/bots/${selected.id}?title=${encodeURIComponent(selected.title)}`),
-        );
+        const next = botDetailSchema.parse(await api(`/bots/${selected.id}?projection=canonical`));
         if (!current()) return;
         setDetail(next);
       } else if (selected?.kind === 'group') {
@@ -353,7 +448,7 @@ function Workspace({
       stopped = true;
       clearTimeout(timer);
     };
-  }, [target?.id, target?.title, active]);
+  }, [target?.id, target?.kind, active]);
   // Acknowledge exactly the loaded conversation, only while its transcript is visible.
   useEffect(() => {
     if (!active || info || editor || !target) return;
@@ -364,14 +459,14 @@ function Workspace({
     if (!id) return;
     void api(`/${target.kind === 'bot' ? 'bots' : 'groups'}/${target.id}/read`, {
       messageId: id,
-      ...(target.kind === 'bot' ? { title: target.title } : {}),
+      ...(target.kind === 'bot' ? { title: mainChatTitle, projection: 'canonical' } : {}),
     }).catch(fail);
   }, [
     active,
     info,
     editor,
     target?.id,
-    target?.title,
+    target?.kind,
     detail?.messages.at(-1)?.id,
     groupMessages.at(-1)?.id,
   ]);
@@ -420,7 +515,7 @@ function Workspace({
     await act(async () => {
       await api(
         `/${target.kind === 'bot' ? 'bots' : 'groups'}/${target.id}/${thisRun ? 'steer' : 'messages'}`,
-        { text, ...(target.kind === 'bot' ? { title: target.title } : {}) },
+        { text, ...(target.kind === 'bot' ? { title: mainChatTitle } : {}) },
       );
       setDraft('');
     });
@@ -429,25 +524,83 @@ function Workspace({
     state?.requests.filter((r) =>
       target?.kind === 'group'
         ? group?.members.includes(r.botId) && r.title === `Group ${group.id}`
-        : r.botId === target?.id && r.title === target?.title,
+        : r.botId === target?.id && !state?.groups.some((g) => r.title === `Group ${g.id}`),
     ) || [];
   useLayoutEffect(() => {
     const transcript = transcriptRef.current;
     if (transcript && followReplies.current) transcript.scrollTop = transcript.scrollHeight;
   }, [detail?.messages, groupMessages, thisRun?.text, requests.length, info]);
-  if (!active) return <main className="loading">Hermes Teammates</main>;
+  const [composerFocusRequest, setComposerFocusRequest] = useState(0);
+  const customizeRoutine = (name: string) => {
+    setComposerFocusRequest((current) => current + 1);
+    setDraft(
+      (current) =>
+        `${current ? `${current}\n\n` : ''}For my "${name}" routine, only update me when…`,
+    );
+    setInfo(false);
+    requestAnimationFrame(() => {
+      if (!nativeComposer.current?.hasAttribute('data-native-controls'))
+        nativeComposer.current?.querySelector('textarea')?.focus();
+    });
+  };
+  const nativeNavigation = useRef<HTMLElement>(null);
+  const nativeComposer = useRef<HTMLFormElement>(null);
+  useNativeControls({
+    enabled: Boolean(active && state && target && !info && !editor),
+    scopeId: target ? `${target.kind}:${target.id}` : 'roster',
+    navigationRef: nativeNavigation,
+    composerRef: nativeComposer,
+    navigation: {
+      title: bot?.name || group?.name || 'Teammates',
+      avatarColor: bot?.color,
+      group: Boolean(group),
+      subtitle: target?.kind === 'group' ? `${group?.members.length || 0} Bots` : 'Chat',
+      backVisible: true,
+      backLabel: 'Back to Bots',
+      detailsVisible: Boolean(bot),
+      detailsLabel: 'Bot details',
+      settingsVisible: Boolean(bot),
+    },
+    composer: {
+      draft,
+      focusRequest: composerFocusRequest,
+      placeholder: thisRun ? 'Steer the current task…' : `Message ${bot?.name || group?.name}…`,
+      disabled: false,
+      submitDisabled: busy || !draft.trim() || (!thisRun && running.length > 0),
+      submitLabel: thisRun ? 'Send steering' : 'Send message',
+      stopVisible: running.length > 0,
+      stopDisabled: running.length > 0 && running.every((r) => stopping.includes(r.botId)),
+      stopLabel: 'Stop',
+    },
+    onDraftChange: setDraft,
+    onBack: () => select(undefined),
+    onDetails: () => setInfo(!info),
+    onStop: () => {
+      for (const r of running) void stopBot(r.botId);
+    },
+    onSettings: () => setEditor('settings'),
+  });
+  if (!active) return <main className="loading">Teammates</main>;
   return (
     <main className="mobile-app">
-      <header className="topbar">
+      <header className="topbar" ref={nativeNavigation}>
         {target ? (
           <>
             <Icon label="Back to Bots" onClick={() => select(undefined)}>
               <ArrowLeft size={21} />
             </Icon>
-            {bot ? <Face bot={bot} /> : <Users size={24} />}
-            <div className="top-title">
-              <strong>{bot?.name || group?.name}</strong>
-              <small>{info ? 'Bot details' : target.title}</small>
+            <div className="identity-pill">
+              {bot ? <Face bot={bot} /> : <Users size={24} />}
+              <div className="top-title">
+                <strong>{bot?.name || group?.name}</strong>
+                <small>
+                  {info
+                    ? 'Bot details'
+                    : target.kind === 'group'
+                      ? `${group?.members.length || 0} Bots`
+                      : 'Chat'}
+                </small>
+              </div>
             </div>
             {bot && (
               <Icon label="Bot details" onClick={() => setInfo(!info)}>
@@ -457,7 +610,7 @@ function Workspace({
           </>
         ) : (
           <>
-            <span className="wordmark">h</span>
+            <Face bot={{ name: 'Teammates', color: 'white' }} />
             <strong>Teammates</strong>
             <span className="spacer" />
             {tab === 'bots' && (
@@ -496,97 +649,101 @@ function Workspace({
               <Face bot={bot} />
               <h1>{bot.name}</h1>
               <p>{bot.role}</p>
-              <small>
-                {bot.provider.kind === 'claude' ? 'Claude through Hermes' : 'OpenAI-compatible'} /{' '}
-                {bot.provider.model}
-              </small>
             </div>
-            <button className="wide" onClick={() => setEditor('settings')}>
-              <Settings2 size={18} /> Bot settings
-            </button>
-            <h2>Conversations</h2>
-            <button
-              className="list-row"
-              onClick={() => select({ kind: 'bot', id: bot.id, title: 'Bot Chat' })}
-            >
-              Bot Chat
-            </button>
-            {detail?.sessions
-              .filter((s) => s.title !== 'Bot Chat')
-              .map((s) => (
-                <button
-                  className="list-row"
-                  key={s.id}
-                  onClick={() => select({ kind: 'bot', id: bot.id, title: s.title })}
-                >
-                  {s.title}
-                </button>
-              ))}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const title = String(new FormData(e.currentTarget).get('title')).trim();
-                if (title) select({ kind: 'bot', id: bot.id, title });
-              }}
-            >
-              <label>
-                New conversation
-                <input name="title" required maxLength={100} placeholder="Name this conversation" />
-              </label>
-              <button className="wide">Open conversation</button>
-            </form>
+            <div className="settings-group">
+              <button className="wide" onClick={() => setEditor('settings')}>
+                <Settings2 size={18} /> Bot settings
+              </button>
+            </div>
             <h2>Memory</h2>
-            <p className="preserve">
-              {detail ? detail.memory || 'No saved memory yet.' : 'Loading memory…'}
-            </p>
-            <button className="wide" disabled={!detail} onClick={() => setEditor('memory')}>
-              Edit memory
-            </button>
-            <h2>Model credentials</h2>
-            <p>{detail?.secrets.join(', ') || 'No credentials added.'}</p>
-            <button className="wide" onClick={() => setEditor('credential')}>
-              Add credential
-            </button>
+            <div className="settings-group">
+              <p className="preserve">
+                {detail ? detail.memory || 'No saved memory yet.' : 'Loading memory…'}
+              </p>
+              <button className="wide" disabled={!detail} onClick={() => setEditor('memory')}>
+                Edit memory
+              </button>
+            </div>
             <h2>Routines</h2>
-            {detail?.routineError && <p className="error">{detail.routineError}</p>}
-            {detail?.routines.map((r) => (
-              <div className="routine" key={r.id}>
-                <strong>{r.name}</strong>
-                <p>
-                  {r.schedule_display} · {r.enabled ? r.state : 'Paused'}
-                </p>
-                {r.last_error && <p className="error">{r.last_error}</p>}
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void act(() =>
-                      api(`/bots/${bot.id}/routines/${r.id}/${r.enabled ? 'pause' : 'resume'}`, {}),
-                    )
-                  }
-                >
-                  {r.enabled ? 'Pause' : 'Resume'}
-                </button>
-              </div>
-            ))}
-            <button className="wide" onClick={() => setEditor('routine')}>
-              <Plus size={18} /> Add routine
-            </button>
-            {detail?.routineOutputs.map((o) => (
-              <details key={o.name}>
-                <summary>{o.name}</summary>
-                <pre>{o.content}</pre>
-              </details>
-            ))}
-            <h2>On your host</h2>
-            <p>
-              {detail?.skills.length || 0} skills · {detail?.files.length || 0} files ·{' '}
-              {detail?.connections.length || 0} app connections
-            </p>
+            <div className="settings-group">
+              {detail?.routineError && <p className="error">{detail.routineError}</p>}
+              {detail?.routines.map((r) => (
+                <div className="routine" key={r.id}>
+                  <strong>{r.name}</strong>
+                  <p>
+                    {r.schedule_display} · {r.enabled ? r.state : 'Paused'}
+                  </p>
+                  {r.last_error && <p className="error">{r.last_error}</p>}
+                  <RoutinePreferenceForm
+                    key={`${bot.id}:${r.id}`}
+                    routine={r}
+                    customize={() => customizeRoutine(r.name)}
+                    save={async (preference) => {
+                      try {
+                        await api(
+                          `/bots/${bot.id}/routines/${encodeURIComponent(r.id)}/preference`,
+                          { preference },
+                          'PUT',
+                        );
+                        await refresh();
+                      } catch (e) {
+                        void fail(e);
+                        throw e;
+                      }
+                    }}
+                  />
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      void act(() =>
+                        api(
+                          `/bots/${bot.id}/routines/${r.id}/${r.enabled ? 'pause' : 'resume'}`,
+                          {},
+                        ),
+                      )
+                    }
+                  >
+                    {r.enabled ? 'Pause' : 'Resume'}
+                  </button>
+                </div>
+              ))}
+              <button className="wide" onClick={() => setEditor('routine')}>
+                <Plus size={18} /> Add routine
+              </button>
+              {detail?.routineOutputs.map((o) => (
+                <details key={o.name}>
+                  <summary>{o.name}</summary>
+                  <pre>{o.content}</pre>
+                </details>
+              ))}
+            </div>
             <p className="hint">
               Manage skills, files, connections, saved logins and Bot computers in the desktop app.
               Their runtime remains on your host. App action reviews and private requests can be
               answered here.
             </p>
+            <details className="advanced settings-group">
+              <summary>Advanced</summary>
+              <h2>Model access</h2>
+              <p>
+                {bot.provider.kind === 'claude' ? 'Claude through Hermes' : 'OpenAI-compatible'} /{' '}
+                {bot.provider.model}
+              </p>
+              <p className="hint">
+                Hermes runs this Bot on your host. Model access and billing are managed there.
+                Change the provider, model or endpoint in Bot settings.
+              </p>
+              <h2>Model credentials</h2>
+              <p>{detail?.secrets.join(', ') || 'No credentials added.'}</p>
+              <button className="wide" onClick={() => setEditor('credential')}>
+                Add credential
+              </button>
+              <h2>On your host</h2>
+              <p>
+                {detail?.skills.length || 0} skills · {detail?.files.length || 0} files ·{' '}
+                {detail?.connections.length || 0} app connections
+              </p>
+            </details>
           </section>
         ) : (
           <>
@@ -601,20 +758,13 @@ function Workspace({
               }}
             >
               {!detail && target.kind === 'bot' && <p className="hint">Loading conversation…</p>}
-              {detail?.messages
-                .filter((m) => m.content)
-                .map((m) => (
-                  <article className={`message ${m.role === 'user' ? 'from-user' : ''}`} key={m.id}>
-                    <small>
-                      {m.role === 'user'
-                        ? 'You'
-                        : m.role === 'assistant'
-                          ? bot?.name
-                          : m.toolName || m.role}
-                    </small>
-                    <Markdown>{m.content}</Markdown>
-                  </article>
-                ))}
+              {detail && (
+                <Transcript
+                  messages={detail.messages}
+                  botName={bot?.name || 'Bot'}
+                  surface="mobile"
+                />
+              )}
               {groupMessages.map((m) => (
                 <article className={`message ${m.name === 'You' ? 'from-user' : ''}`} key={m.id}>
                   <small>{m.name}</small>
@@ -640,9 +790,37 @@ function Workspace({
                   >
                     <Square size={13} /> Stop
                   </button>
-                  {r.title === target.title && r.text && <p className="preserve">{r.text}</p>}
+                  {r.title === conversationTitle && r.text && <p className="preserve">{r.text}</p>}
                 </div>
               ))}
+              {target.kind === 'bot' &&
+                detail?.routines
+                  .filter((r) => r.updatePrompt && r.updatePreferenceAvailable)
+                  .map((r) => (
+                    <RoutinePreferenceForm
+                      key={`${target.id}:${r.updatePrompt!.id}`}
+                      routine={r}
+                      customize={() => customizeRoutine(r.name)}
+                      question
+                      output={
+                        detail.routineOutputs.find((o) => o.name === r.updatePrompt!.outputName)
+                          ?.response
+                      }
+                      save={async (preference) => {
+                        try {
+                          await api(
+                            `/bots/${target.id}/routines/${encodeURIComponent(r.id)}/preference`,
+                            { preference },
+                            'PUT',
+                          );
+                          await refresh();
+                        } catch (e) {
+                          void fail(e);
+                          throw e;
+                        }
+                      }}
+                    />
+                  ))}
               {requests.map((r) => (
                 <RequestCard
                   key={r.id}
@@ -660,13 +838,13 @@ function Workspace({
                 />
               ))}
             </section>
-            <form className="composer" onSubmit={send}>
+            <form className="composer" ref={nativeComposer} onSubmit={send}>
               <textarea
                 aria-label={thisRun ? 'Steer Bot' : 'Message'}
                 placeholder={
                   thisRun ? 'Steer the current task…' : `Message ${bot?.name || group?.name}…`
                 }
-                rows={2}
+                rows={1}
                 maxLength={target.kind === 'group' ? 30000 : 60000}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -696,7 +874,7 @@ function Workspace({
           />
           <div className="host-status">
             <span className={`dot ${state.runtime.available ? 'online' : ''}`} />
-            {state.runtime.available ? 'Hermes connected' : 'Hermes needs attention'}
+            {state.runtime.available ? 'Workspace connected' : 'Workspace needs attention'}
             <small>
               {state.running.length ? `${state.running.length} working` : 'Ready when you are'}
             </small>
@@ -706,7 +884,7 @@ function Workspace({
             .filter((b) => `${b.name} ${b.role}`.toLowerCase().includes(query.toLowerCase()))
             .map((b) => {
               const unread = state.inbox.conversations
-                .filter((i) => i.botId === b.id)
+                .filter((i) => i.botId === b.id && i.title === mainChatTitle)
                 .reduce((n, i) => n + i.unread, 0);
               const needed = state.requests.filter((r) => r.botId === b.id).length;
               const run = state.running.find((r) => r.botId === b.id);
@@ -714,7 +892,7 @@ function Workspace({
                 <button
                   className="bot-row"
                   key={b.id}
-                  onClick={() => select({ kind: 'bot', id: b.id, title: 'Bot Chat' })}
+                  onClick={() => select({ kind: 'bot', id: b.id })}
                 >
                   <Face bot={b} />
                   <span className="row-copy">
@@ -741,7 +919,7 @@ function Workspace({
             <button
               className="bot-row"
               key={g.id}
-              onClick={() => select({ kind: 'group', id: g.id, title: g.name })}
+              onClick={() => select({ kind: 'group', id: g.id })}
             >
               <span className="group-face">
                 <Users size={23} />
@@ -771,11 +949,7 @@ function Workspace({
                 className="activity-row"
                 key={r.id}
                 onClick={() =>
-                  select(
-                    g
-                      ? { kind: 'group', id: g.id, title: g.name }
-                      : { kind: 'bot', id: r.botId, title: r.title },
-                  )
+                  select(g ? { kind: 'group', id: g.id } : { kind: 'bot', id: r.botId })
                 }
               >
                 <CircleHelp className="attention" size={21} />
@@ -790,44 +964,43 @@ function Workspace({
                           ? 'Review an approval'
                           : 'Private input requested'}
                   </p>
-                  <small>{r.title}</small>
+                  {g && <small>{g.name}</small>}
                 </span>
               </button>
             );
           })}
-          {[...state.inbox.conversations]
+          {[...state.inbox.conversations.filter((i) => i.title === mainChatTitle)]
             .sort((a, b) => b.at - a.at)
             .map((i) => (
               <button
                 className="activity-row"
                 key={`${i.botId}-${i.title}`}
-                onClick={() => select({ kind: 'bot', id: i.botId, title: i.title })}
+                onClick={() => select({ kind: 'bot', id: i.botId })}
               >
                 <MessageCircle size={21} />
                 <span>
                   <strong>{state.bots.find((b) => b.id === i.botId)?.name}</strong>
                   <p>{i.preview || 'New reply'}</p>
-                  <small>
-                    {i.title} · {new Date(i.at).toLocaleString()}
-                  </small>
+                  <small>{new Date(i.at).toLocaleString()}</small>
                 </span>
                 <Badge count={i.unread} />
               </button>
             ))}
-          {!state.requests.length && !state.inbox.conversations.length && (
-            <div className="empty">
-              <Clock3 size={32} />
-              <h2>You're up to date</h2>
-              <p>
-                Routine replies, Bot handoffs and questions will appear here while your host runs.
-              </p>
-            </div>
-          )}
+          {!state.requests.length &&
+            !state.inbox.conversations.some((i) => i.title === mainChatTitle) && (
+              <div className="empty">
+                <Clock3 size={32} />
+                <h2>You're up to date</h2>
+                <p>
+                  Routine replies, Bot handoffs and questions will appear here while your host runs.
+                </p>
+              </div>
+            )}
         </section>
       ) : (
         <section className="scroll details">
           <h1>Your host</h1>
-          <p className="lede">Hermes keeps working on this machine while your phone is away.</p>
+          <p className="lede">Your Bots keep working here while your phone is away.</p>
           <div className="host-card">
             <ShieldCheck size={24} />
             <strong>{new URL(connection.url).host}</strong>
@@ -843,39 +1016,48 @@ function Workspace({
             This paired device can control your Bots and answer approvals. Bot profiles organize
             data; host tools still run with your OS user's access.
           </p>
-          <button
-            className="wide danger"
-            disabled={busy}
-            onClick={() =>
-              void act(async () => {
-                await requestHost(
-                  connection.url,
-                  '/mobile/device',
-                  undefined,
-                  'DELETE',
-                  connection.token,
-                );
-                await saveConnection();
-                disconnected('Device disconnected.');
-              })
-            }
-          >
-            Revoke access and disconnect
-          </button>
-          <button
-            className="wide"
-            onClick={() =>
-              void saveConnection()
-                .then(() =>
-                  disconnected(
-                    'Connection forgotten on this device. Revoke its access on the host if it is no longer needed.',
-                  ),
-                )
-                .catch(fail)
-            }
-          >
-            Forget connection on this device
-          </button>
+          <div className="settings-group">
+            <button
+              className="wide danger"
+              disabled={busy}
+              onClick={() =>
+                void act(async () => {
+                  await requestHost(
+                    connection.url,
+                    '/mobile/device',
+                    undefined,
+                    'DELETE',
+                    connection.token,
+                  );
+                  await saveConnection();
+                  disconnected('Device disconnected.');
+                })
+              }
+            >
+              Revoke access and disconnect
+            </button>
+            <button
+              className="wide"
+              onClick={() =>
+                void saveConnection()
+                  .then(() =>
+                    disconnected(
+                      'Connection forgotten on this device. Revoke its access on the host if it is no longer needed.',
+                    ),
+                  )
+                  .catch(fail)
+              }
+            >
+              Forget connection on this device
+            </button>
+          </div>
+          <details className="advanced settings-group">
+            <summary>Advanced</summary>
+            <p className="hint">
+              Hermes runs your Bots on the host. This device connects through its authenticated
+              mobile gateway.
+            </p>
+          </details>
         </section>
       )}
       {!target && (
@@ -1001,7 +1183,14 @@ function Editor({
     void save(body);
   }
   return (
-    <form onSubmit={submit}>
+    <form
+      onSubmit={submit}
+      onInvalidCapture={(event) => {
+        const field = event.target as HTMLElement;
+        const advanced = field.closest('details');
+        if (advanced) advanced.open = true;
+      }}
+    >
       {['new', 'settings', 'group', 'routine'].includes(kind) && (
         <label>
           Name
@@ -1034,32 +1223,38 @@ function Editor({
               ))}
             </select>
           </label>
-          <label>
-            Model access
-            <select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value as 'claude' | 'compatible')}
-            >
-              <option value="claude">Claude through Hermes</option>
-              <option value="compatible">OpenAI-compatible API / Ollama</option>
-            </select>
-          </label>
-          <label>
-            Model ID
-            <input
-              name="model"
-              required
-              maxLength={160}
-              defaultValue={bot?.provider.model || 'claude-sonnet-4-6'}
-            />
-          </label>
-          {provider === 'compatible' ? (
+          <p className="hint">
+            Model access must be set up before the first reply. Open Advanced to check the model
+            setup on your host.
+          </p>
+          <details className="advanced settings-group">
+            <summary>Advanced</summary>
             <label>
+              Model access
+              <select
+                value={provider}
+                onChange={(e) => setProvider(e.target.value as 'claude' | 'compatible')}
+              >
+                <option value="claude">Claude through Hermes</option>
+                <option value="compatible">OpenAI-compatible API / Ollama</option>
+              </select>
+            </label>
+            <label>
+              Model ID
+              <input
+                name="model"
+                required
+                maxLength={160}
+                defaultValue={bot?.provider.model || 'claude-sonnet-4-6'}
+              />
+            </label>
+            <label hidden={provider !== 'compatible'}>
               API base URL
               <input
                 name="baseUrl"
                 type="url"
-                required
+                required={provider === 'compatible'}
+                disabled={provider !== 'compatible'}
                 defaultValue={
                   bot?.provider.kind === 'compatible'
                     ? bot.provider.baseUrl
@@ -1068,20 +1263,20 @@ function Editor({
               />
               <small>This address is resolved on the Hermes host.</small>
             </label>
-          ) : (
-            <label className="check">
-              <input
-                name="borrowLogin"
-                type="checkbox"
-                defaultChecked={bot?.provider.kind === 'claude' && bot.provider.borrowLogin}
-              />
-              Reuse the host's Claude Code login
-            </label>
-          )}
-          <p className="hint">
-            Add ANTHROPIC_API_KEY or OPENAI_API_KEY in Bot details when needed. Hermes owns model
-            access and billing.
-          </p>
+            <p className="hint">
+              Add ANTHROPIC_API_KEY or OPENAI_API_KEY in Bot details when needed. Hermes owns model
+              access and billing.
+            </p>
+          </details>
+          <label className="check login-consent" hidden={provider !== 'claude'}>
+            <input
+              name="borrowLogin"
+              type="checkbox"
+              disabled={provider !== 'claude'}
+              defaultChecked={bot?.provider.kind === 'claude' && bot.provider.borrowLogin}
+            />
+            Reuse the host's Claude Code login
+          </label>
         </>
       )}
       {kind === 'group' && (
