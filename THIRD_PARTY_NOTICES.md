@@ -1,8 +1,7 @@
 # Third-party notices
 
 The Linux desktop image arrangement in `server/computer/` is adapted from
-[unGrokBot](https://github.com/dafzthomas/unGrokBot), commit
-`322711285429483a23ac5a00375ebcb677f8c98e`. It contains no extracted Grok application assets.
+unGrokBot. It contains no extracted Grok application assets.
 
 MIT License
 
