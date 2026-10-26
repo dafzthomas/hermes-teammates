@@ -105,7 +105,6 @@ intermittent lost initial characters in automation.
 
 - Installed/tested Hermes: `v0.21.5+3904.g188a1a5`, upstream `188a1a5e`, Python 3.14.7.
 - Current upstream source inspected separately: `5894e750c3dba980d43b25aa29e3958149ba2c61`. Upstream research is not a claim that this installed version has every latest feature.
-- Reference unGrokBot inspected at `322711285429483a23ac5a00375ebcb677f8c98e`.
 - Apple container 1.6.0 on macOS 27.0; Debian trixie desktop, Xvfb, Chromium and noVNC 1.7.0.
 - Electron 45.0.0, Node.js 24.18.0 for development checks; the Electron backend uses Electron's bundled Node runtime.
 

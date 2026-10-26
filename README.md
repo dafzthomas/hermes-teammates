@@ -123,7 +123,7 @@ plaintext Hermes credential files. See [Hermes passwords and logins](https://her
 
 ## Bot computers
 
-On Apple silicon with macOS 26 or later, install [Apple container](https://github.com/apple/container):
+On Apple silicon with macOS 26 or later, install the [`container`](https://github.com/apple/container) CLI:
 
 ```sh
 brew install container
@@ -147,7 +147,7 @@ vision model for `vision_analyze`; shell and manual browser control work indepen
 
 ![Live Bot computer in the compiled interface](docs/computer.png)
 
-VM files live in per-Bot Apple container named volumes. The host **Files** panel
+VM files live in per-Bot named volumes created by `container`. The host **Files** panel
 and the guest `~/workspace` are separate; there is no automatic host mount or file
 sync. Model credentials stay with Hermes on the host. Native host tools still
 run under your account, so enabling a computer does not sandbox the whole agent.
@@ -203,4 +203,4 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for checkout setup, project structure, c
 
 Hermes Teammates is licensed under the [MIT license](LICENSE).
 
-This project contains no proprietary Grok app bundle, extracted UI code, logos or fonts. The private `reference/` research checkouts are ignored and are not part of the project or a desktop package. [unGrokBot](https://github.com/dafzthomas/unGrokBot) informed the interaction research; it requires the original app bundle, whereas this interface is authored independently. Not affiliated with xAI, Cursor or Nous Research. Hermes and dependencies retain their own licenses. Adapted MIT computer-runtime material and the noVNC screen client are credited in [third-party notices](THIRD_PARTY_NOTICES.md).
+This project contains no proprietary Grok assets, extracted UI code, logos or fonts. The private `reference/` research checkouts are ignored and are not part of the project or a desktop package. This interface is authored independently. Not affiliated with xAI, Cursor or Nous Research. Hermes and dependencies retain their own licenses. Adapted MIT computer-runtime material and the noVNC screen client are credited in [third-party notices](THIRD_PARTY_NOTICES.md).
